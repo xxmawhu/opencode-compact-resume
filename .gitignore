@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+*.egg
+
+# 运行时目录（不进入版本控制）
+issues/
+plan/
+end_task/
+data/
+memory/
+!memory/.gitkeep
+tmp-issues/
+/.var/
+
+# 项目根 AGENTS.md 由模板分发（git init --template / install.sh）生成，不入库
+AGENTS.md
+
+# 日志
+log/
+*.log
+
+# Ruff
+.ruff_cache/
+
+# Pytest
+.pytest_cache/
+
+# Notion 页面 JSON（含页面 ID，不入库，联动 sync-notion）
+notion-docs/
+
+# 系统
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+
+# mkrepo temp files — never committed (issue 6ec1b3a4)
+agr_stderr_*
+agr_msg_*

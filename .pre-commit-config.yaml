@@ -1,0 +1,41 @@
+repos:
+  # --- Python ---
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.20
+    hooks:
+      - id: ruff
+        args: [--fix]
+        stages: [pre-commit]
+      - id: ruff-format
+        stages: [pre-commit]
+
+  # --- Shell ---
+  - repo: https://github.com/scop/pre-commit-shfmt
+    rev: v3.13.1-1
+    hooks:
+      - id: shfmt
+        stages: [pre-commit]
+
+  # shellcheck：local repo + language: system（环境无 docker 时以本地 shellcheck
+  # binary 运行；校验版本与 koalaman/shellcheck-precommit v0.11.0 对齐）
+  - repo: local
+    hooks:
+      - id: shellcheck
+        name: shellcheck
+        entry: shellcheck
+        args: [--severity=warning]
+        exclude: check-o-run-main\.sh$
+        language: system
+        types: [shell]
+        stages: [pre-commit]
+
+  # --- post-merge: git pull 后自动安装更新 ---
+  - repo: local
+    hooks:
+      - id: post-merge
+        name: post-merge
+        entry: bash scripts/post-merge.sh
+        language: system
+        stages: [post-merge]
+        always_run: true
+        verbose: false
