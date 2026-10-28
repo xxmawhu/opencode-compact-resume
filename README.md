@@ -30,7 +30,7 @@ OpenCode installs the plugin from its own config. A manual `npm install` is not 
 The host accepts npm git specifiers. Use the bare URL, which works in both host lines:
 
 ```text
-git+https://gitee.com/SIZXSN6/recover-task-after-compact.git
+git+https://github.com/xxmawhu/opencode-compact-resume.git
 ```
 
 Pin a revision or tag when reproducibility matters: append `#<commit>` or `#v0.1.0`.
@@ -43,14 +43,14 @@ Pin a revision or tag when reproducibility matters: append `#<commit>` or `#v0.1
 
 ```jsonc
 {
-  "plugins": ["git+https://gitee.com/SIZXSN6/recover-task-after-compact.git"],
+  "plugins": ["git+https://github.com/xxmawhu/opencode-compact-resume.git"],
 }
 ```
 
 The CLI can install it and write the config entry:
 
 ```sh
-opencode plugin add git+https://gitee.com/SIZXSN6/recover-task-after-compact.git
+opencode plugin add git+https://github.com/xxmawhu/opencode-compact-resume.git
 ```
 
 With options:
@@ -59,14 +59,14 @@ With options:
 {
   "plugins": [
     {
-      "package": "git+https://gitee.com/SIZXSN6/recover-task-after-compact.git",
+      "package": "git+https://github.com/xxmawhu/opencode-compact-resume.git",
       "options": { "text": "Continue the unfinished task." },
     },
   ],
 }
 ```
 
-In v2 keep the specifier bare. The host splits `name@version` at the last `@`, so `name@git+https://…` is read as `name` plus a version and falls back to the registry.
+In v2 keep the specifier bare. The host splits `name@version` at the last `@`, so `name@git+https://…` is read as `name` plus a version and falls back to the registry. For the same reason, use the `https` form rather than `git+ssh://git@github.com/…`.
 
 ### OpenCode v1 (>= 1.18.29)
 
@@ -76,7 +76,7 @@ v1 object entrypoints (`server()`) require OpenCode `1.18.29` or newer. On older
 
 ```jsonc
 {
-  "plugin": ["git+https://gitee.com/SIZXSN6/recover-task-after-compact.git"],
+  "plugin": ["git+https://github.com/xxmawhu/opencode-compact-resume.git"],
 }
 ```
 
@@ -88,7 +88,7 @@ With options (tuple form):
 {
   "plugin": [
     [
-      "git+https://gitee.com/SIZXSN6/recover-task-after-compact.git",
+      "git+https://github.com/xxmawhu/opencode-compact-resume.git",
       { "text": "Continue the unfinished task." },
     ],
   ],
@@ -176,6 +176,19 @@ src/v2.ts          v2 server part (event subscription, synthetic injection)
 src/index.ts       hybrid entrypoint (default export with setup + server)
 tests/             node:test suites against the built output
 ```
+
+## Releasing
+
+Distribution runs through the GitHub repository: users install the `git+https://github.com/xxmawhu/opencode-compact-resume.git` specifier, and tags publish to npm through GitHub Actions.
+
+To publish, add a granular npm token with publish access as the `NPM_TOKEN` repository secret, then push a tag:
+
+```sh
+git tag v0.1.1
+git push origin v0.1.1
+```
+
+The workflow runs `npm ci`, the `prepublishOnly` check, and `npm publish --provenance`.
 
 ## Compatibility
 
