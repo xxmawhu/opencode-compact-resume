@@ -1,6 +1,6 @@
 {
   "name": "opencode-compact-resume",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "OpenCode plugin (v1 + v2): after context compaction, remind the agent to resume unfinished issues, plans, context and memory todos.",
   "type": "module",
   "license": "MIT",
@@ -51,5 +51,13 @@
     "prettier": "^3.4.0",
     "typescript": "^5.7.0",
     "typescript-eslint": "^8.18.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/xxmawhu/opencode-compact-resume.git"
+  },
+  "homepage": "https://github.com/xxmawhu/opencode-compact-resume#readme",
+  "bugs": {
+    "url": "https://github.com/xxmawhu/opencode-compact-resume/issues"
   }
 }
