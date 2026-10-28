@@ -1,0 +1,54 @@
+{
+  "name": "opencode-compact-resume",
+  "version": "0.1.0",
+  "description": "OpenCode plugin (v1 + v2): after context compaction, remind the agent to resume unfinished issues, plans, context and memory todos.",
+  "type": "module",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "opencode-v2",
+    "compaction",
+    "compact",
+    "resume",
+    "agent"
+  ],
+  "engines": {
+    "node": ">=18.18"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src",
+    "format": "prettier --write \"{src,tests}/**/*.{ts,mjs,json}\" \"*.{json,md,yaml,yml}\"",
+    "format:check": "prettier --check \"{src,tests}/**/*.{ts,mjs,json}\" \"*.{json,md,yaml,yml}\"",
+    "test": "npm run build && node --test tests/",
+    "check": "npm run lint && npm run typecheck && npm run test",
+    "prepublishOnly": "npm run check"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.16.0",
+    "@types/node": "^18.19.0",
+    "eslint": "^9.16.0",
+    "prettier": "^3.4.0",
+    "typescript": "^5.7.0",
+    "typescript-eslint": "^8.18.0"
+  }
+}

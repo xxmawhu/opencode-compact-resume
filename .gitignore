@@ -1,11 +1,8 @@
-# Python
-__pycache__/
-*.pyc
-*.pyo
-*.egg-info/
+# Node / TypeScript
+node_modules/
 dist/
-build/
-*.egg
+coverage/
+*.tsbuildinfo
 
 # 运行时目录（不进入版本控制）
 issues/
@@ -24,12 +21,6 @@ AGENTS.md
 log/
 *.log
 
-# Ruff
-.ruff_cache/
-
-# Pytest
-.pytest_cache/
-
 # Notion 页面 JSON（含页面 ID，不入库，联动 sync-notion）
 notion-docs/
 
@@ -40,6 +31,6 @@ Thumbs.db
 *.swo
 *~
 
-# mkrepo temp files — never committed (issue 6ec1b3a4)
+# mkrepo temp files — never committed
 agr_stderr_*
 agr_msg_*

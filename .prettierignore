@@ -1,0 +1,8 @@
+dist/
+node_modules/
+.var/
+memory/
+issues/
+plan/
+end_task/
+package-lock.json
