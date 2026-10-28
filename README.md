@@ -23,6 +23,18 @@ Both entrypoints share the same injection core:
 
 ## Install
 
+### From git (available now)
+
+```sh
+npm install git+https://gitee.com/SIZXSN6/recover-task-after-compact.git
+```
+
+npm builds the package during install through the `prepare` script, so keep install scripts enabled (the default) and use Node 18.18 or newer.
+
+### From the npm registry
+
+Registry publication is pending; the package name is not yet resolvable from the public registry. Once released:
+
 ```sh
 npm install opencode-compact-resume
 ```
