@@ -23,21 +23,19 @@ Both entrypoints share the same injection core:
 
 ## Install
 
+OpenCode installs the plugin from its own config. A manual `npm install` is not part of the host flow.
+
 ### From git (available now)
 
-```sh
-npm install git+https://gitee.com/SIZXSN6/recover-task-after-compact.git
+The host accepts npm git specifiers. Use the bare URL, which works in both host lines:
+
+```text
+git+https://gitee.com/SIZXSN6/recover-task-after-compact.git
 ```
 
-npm builds the package during install through the `prepare` script, so keep install scripts enabled (the default) and use Node 18.18 or newer.
+Pin a revision or tag when reproducibility matters: append `#<commit>` or `#v0.1.0`.
 
-### From the npm registry
-
-Registry publication is pending; the package name is not yet resolvable from the public registry. Once released:
-
-```sh
-npm install opencode-compact-resume
-```
+`dist/` is not committed. The package declares `prepare`, so npm installs the dev dependencies of a git dependency and builds the package before linking it. The install needs network access to the repository and the npm registry, plus Node 18.18 or newer.
 
 ### OpenCode v2
 
@@ -45,8 +43,14 @@ npm install opencode-compact-resume
 
 ```jsonc
 {
-  "plugins": ["opencode-compact-resume"],
+  "plugins": ["git+https://gitee.com/SIZXSN6/recover-task-after-compact.git"],
 }
+```
+
+The CLI can install it and write the config entry:
+
+```sh
+opencode plugin add git+https://gitee.com/SIZXSN6/recover-task-after-compact.git
 ```
 
 With options:
@@ -55,12 +59,14 @@ With options:
 {
   "plugins": [
     {
-      "package": "opencode-compact-resume",
+      "package": "git+https://gitee.com/SIZXSN6/recover-task-after-compact.git",
       "options": { "text": "Continue the unfinished task." },
     },
   ],
 }
 ```
+
+In v2 keep the specifier bare. The host splits `name@version` at the last `@`, so `name@git+https://…` is read as `name` plus a version and falls back to the registry.
 
 ### OpenCode v1 (>= 1.18.29)
 
@@ -70,17 +76,28 @@ v1 object entrypoints (`server()`) require OpenCode `1.18.29` or newer. On older
 
 ```jsonc
 {
-  "plugin": ["opencode-compact-resume"],
+  "plugin": ["git+https://gitee.com/SIZXSN6/recover-task-after-compact.git"],
 }
 ```
+
+v1 also accepts the `opencode-compact-resume@git+https://…` form: both are parsed by npm's specifier parser.
 
 With options (tuple form):
 
 ```jsonc
 {
-  "plugin": [["opencode-compact-resume", { "text": "Continue the unfinished task." }]],
+  "plugin": [
+    [
+      "git+https://gitee.com/SIZXSN6/recover-task-after-compact.git",
+      { "text": "Continue the unfinished task." },
+    ],
+  ],
 }
 ```
+
+### From the npm registry
+
+Registry publication is pending; the package name is not yet resolvable from the public registry. Once released, use `"plugins": ["opencode-compact-resume"]` in v2 or `"plugin": ["opencode-compact-resume"]` in v1.
 
 ## Verify the install
 
@@ -131,6 +148,8 @@ Turn it on when you want exactly one continuation turn driven by the reminder te
 ## Troubleshooting
 
 - **No reminder after compaction.** Check that `OPENCODE_COMPACT_RESUME_DISABLED` is unset, the session is not a child session, and v1 is 1.18.29 or newer.
+- **Git install fails in v2.** The specifier likely starts with `name@`. v2 splits at the last `@` and then installs from the registry; use the bare `git+https://…` URL.
+- **Git install fails in both hosts.** The clone needs anonymous access to the repository, and the build needs the npm registry for dev dependencies. Check the host log for the `Failed to install plugin` line.
 - **Reminder text is not applied.** v1 needs tuple options or the environment variable; v2 reads the `options` field at plugin load.
 - **Two reminders in one session.** The host emitted duplicate events; the 15 s cooldown is per session, raise `cooldownMs`.
 - **Delivery errors in the log.** Set `verbose` to see info lines; warnings and errors carry the session id and the transport error.
