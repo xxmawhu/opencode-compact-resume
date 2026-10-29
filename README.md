@@ -29,7 +29,7 @@
 opencode plugin add git+https://github.com/xxmawhu/opencode-compact-resume.git
 ```
 
-`plugin add` 负责安装并写入配置，跟随默认分支取最新版本。需要自定义选项时改 `opencode.jsonc`：
+`plugin add` 负责安装并写入配置，跟随默认分支取最新版本，安装由宿主完成。需要自定义选项时改 `opencode.jsonc`：
 
 ```jsonc
 {
@@ -68,14 +68,6 @@ v1 的对象入口（`server()`）需要 OpenCode `1.18.29` 及以上。更旧�
   ],
 }
 ```
-
-宿主未自动安装时，先手动构建安装：
-
-```sh
-npm install 'git+https://github.com/xxmawhu/opencode-compact-resume.git'
-```
-
-需要 Node 18.18 以上；包内的 `prepare` 会构建 `dist/`。
 
 ### 重启宿主
 
@@ -128,7 +120,7 @@ OpenCode v1 在压缩后追加一个通用的合成“继续”回合。若该�
 
 - **压缩后没有提醒**：确认未设置 `OPENCODE_COMPACT_RESUME_DISABLED`、会话不是子会话、v1 版本不低于 1.18.29。
 - **v2 安装失败**：说明符可能以 `name@` 开头。v2 按最后一个 `@` 切分后会尝试从 registry 安装；改用裸 `git+https://…`。
-- **两个宿主都装不上**：克隆需要仓库匿名可访问，构建需要 npm registry 提供开发依赖；查看宿主日志中的 `Failed to install plugin`。
+- **两个宿主都装不上**：克隆需要仓库匿名可访问，安装时还需要取到构建依赖；查看宿主日志中的 `Failed to install plugin`。
 - **提醒文案没生效**：v1 需使用元组选项或环境变量；v2 在插件加载时读取 `options` 字段。
 - **同一会话收到两条提醒**：插件被注册了两次，或宿主重复派发同一压缩事件；确认插件只注册一次。
 - **日志里有投递错误**：warning 与 error 默认就写日志，带上会话 id、尝试次数与完整错误对象（v1 的真实原因常在 `data.message`，`message` 只剩 `UnknownError`）；`verbose` 才记录 info/debug。
