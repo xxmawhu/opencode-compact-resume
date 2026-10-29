@@ -1,47 +1,47 @@
 # opencode-compact-resume
 
-An OpenCode plugin for both **OpenCode v1** and **OpenCode v2**. After a session compacts its context, it injects a short reminder so the agent checks for unfinished work (issues, pending plan items, session context and memory todos) and continues instead of stopping.
+同时支持 **OpenCode v1** 与 **OpenCode v2** 的插件。会话压缩上下文后注入一条简短提醒，让 agent 先检查未完成的任务（issues、plan 待执行项、会话上下文与 memory 待办），再决定继续还是收尾。
 
-Context compaction keeps the summary and drops the details. Without a nudge, the agent often ends the turn right after compaction, losing track of the task it was executing. This plugin sends one reminder per compaction and stays out of the way otherwise.
+上下文压缩只保留摘要、丢弃细节。没有提醒时，agent 常在压缩后直接结束回合，丢掉正在执行的任务。本插件每次压缩只发一条提醒，其余时间不介入。
 
-Audience: OpenCode users who install the plugin, and maintainers who build it from source.
+读者：安装插件的 OpenCode 用户，以及从源码构建的维护者。
 
-## How it works
+## 工作方式
 
-| Host        | Trigger                          | Delivery                                              |
-| ----------- | -------------------------------- | ----------------------------------------------------- |
-| OpenCode v1 | `session.compacted` event        | `client.session.promptAsync` (falls back to `prompt`) |
-| OpenCode v2 | `session.compaction.ended` event | `ctx.session.synthetic` (falls back to `prompt`)      |
+| 宿主        | 触发                            | 投递                                              |
+| ----------- | ------------------------------- | ------------------------------------------------- |
+| OpenCode v1 | `session.compacted` 事件        | `client.session.promptAsync`（失败回退 `prompt`） |
+| OpenCode v2 | `session.compaction.ended` 事件 | `ctx.session.synthetic`（失败回退 `prompt`）      |
 
-Both entrypoints share the same injection core:
+两个入口共用同一套注入内核：
 
-- **One reminder per compaction** — duplicate events and overlapping calls for the same session are dropped.
-- **Cooldown** — a second reminder for the same session is skipped for 15 seconds by default.
-- **Child sessions are skipped** — subagents are orchestrated by the parent session; set `includeChildSessions` to change this.
-- **Failures never break the session** — a failed delivery is logged (warning/error only) and can be retried by the next event.
-- **No runtime dependencies** — the package ships plain ESM and only uses the host APIs.
+- **每次压缩一条提醒** —— 同会话的重复事件与重叠调用会被丢弃。
+- **冷却** —— 同一会话默认 15 秒内不再注入第二条。
+- **跳过子会话** —— 子代理由父会话编排；需要时用 `includeChildSessions` 打开。
+- **失败不影响会话** —— 投递失败只记日志（warning/error），下次事件可重试。
+- **无运行时依赖** —— 只发布纯 ESM，只使用宿主 API。
 
-## Install
+## 安装
 
-Three steps: install the package from git, point OpenCode at it, restart the host.
+三步：从 git 安装、在 OpenCode 配置中引用、重启宿主。
 
-### 1. Install the package from git
+### 1. 从 git 安装
 
-Node 18.18 or newer and network access to GitHub are required. `dist/` is not committed; the package declares `prepare`, so the build runs during installation.
+需要 Node 18.18 以上，并可访问 GitHub。`dist/` 不入库；包声明了 `prepare`，安装时会自动构建。
 
 ```sh
 npm install 'git+https://github.com/xxmawhu/opencode-compact-resume.git#v0.1.1'
 ```
 
-Pin a revision with `#<tag>` or `#<commit>`. Without a suffix npm follows the default branch.
+用 `#<tag>` 或 `#<commit>` 固定版本；不加后缀时 npm 跟随默认分支。
 
-The repository is the only release source.
+仓库是唯一发布源。
 
-### 2. Configure OpenCode
+### 2. 配置 OpenCode
 
 #### OpenCode v2
 
-`opencode.jsonc`:
+`opencode.jsonc`：
 
 ```jsonc
 {
@@ -49,32 +49,32 @@ The repository is the only release source.
 }
 ```
 
-Or let the CLI write the entry:
+或由 CLI 写入该条目：
 
 ```sh
 opencode plugin add git+https://github.com/xxmawhu/opencode-compact-resume.git
 ```
 
-With options:
+带选项：
 
 ```jsonc
 {
   "plugins": [
     {
       "package": "git+https://github.com/xxmawhu/opencode-compact-resume.git#v0.1.1",
-      "options": { "text": "Continue the unfinished task." },
+      "options": { "text": "继续未完成的任务。" },
     },
   ],
 }
 ```
 
-Keep the specifier bare in v2. The host splits `name@version` at the last `@`, so `name@git+https://…` is read as `name` plus a version and falls back to the registry. For the same reason, use the `https` form rather than `git+ssh://git@github.com/…`.
+v2 的说明符必须保持裸 URL。宿主按最后一个 `@` 切分 `name@version`，`name@git+https://…` 会被当作 `name` 加版本并回落到 registry；同理不要用 `git+ssh://git@github.com/…`。
 
-#### OpenCode v1 (>= 1.18.29)
+#### OpenCode v1（>= 1.18.29）
 
-v1 object entrypoints (`server()`) require OpenCode `1.18.29` or newer. On older v1 releases, load it as a local plugin written in the classic function form.
+v1 的对象入口（`server()`）需要 OpenCode `1.18.29` 及以上。更旧的 v1 版本请以经典函数形式作为本地插件加载。
 
-`opencode.json`:
+`opencode.json`：
 
 ```jsonc
 {
@@ -82,104 +82,104 @@ v1 object entrypoints (`server()`) require OpenCode `1.18.29` or newer. On older
 }
 ```
 
-With options (tuple form):
+带选项（元组形式）：
 
 ```jsonc
 {
   "plugin": [
     [
       "git+https://github.com/xxmawhu/opencode-compact-resume.git#v0.1.1",
-      { "text": "Continue the unfinished task." },
+      { "text": "继续未完成的任务。" },
     ],
   ],
 }
 ```
 
-### 3. Restart the host
+### 3. 重启宿主
 
-The plugin loads at startup, so restart OpenCode after changing the config.
+插件在启动时加载，修改配置后需要重启 OpenCode。
 
-## Verify the install
+## 验证安装
 
-1. v2: run `opencode plugin list` and confirm `opencode-compact-resume` is listed. v1: check the server log for plugin load errors.
-2. Trigger a compaction in any session.
-3. The session receives the reminder once. A second compaction inside the cooldown window is skipped by design.
+1. v2 执行 `opencode plugin list`，确认列表中有 `opencode-compact-resume`；v1 检查服务日志有无插件加载错误。
+2. 在任意会话触发一次压缩。
+3. 会话收到一次提醒；冷却窗口内的第二次压缩按设计跳过。
 
-## Options
+## 选项
 
-| Option                        | Type      | Default           | Description                                                            |
-| ----------------------------- | --------- | ----------------- | ---------------------------------------------------------------------- |
-| `enabled`                     | `boolean` | `true`            | Master switch.                                                         |
-| `text`                        | `string`  | built-in reminder | Text injected after compaction. Empty or blank values use the default. |
-| `cooldownMs`                  | `number`  | `15000`           | Minimum interval between two reminders in the same session.            |
-| `includeChildSessions`        | `boolean` | `false`           | Also inject into child (subagent) sessions.                            |
-| `suppressBuiltinAutoContinue` | `boolean` | `false`           | v1 only: disable OpenCode's generic auto-continue turn.                |
-| `verbose`                     | `boolean` | `false`           | Also log info/debug lines; warnings and errors are always logged.      |
+| 选项                          | 类型      | 默认值   | 说明                                                 |
+| ----------------------------- | --------- | -------- | ---------------------------------------------------- |
+| `enabled`                     | `boolean` | `true`   | 总开关。                                             |
+| `text`                        | `string`  | 内置提醒 | 压缩后注入的文案；空值或空白使用默认文案。           |
+| `cooldownMs`                  | `number`  | `15000`  | 同一会话两条提醒的最小间隔。                         |
+| `includeChildSessions`        | `boolean` | `false`  | 是否也向子会话（子代理）注入。                       |
+| `suppressBuiltinAutoContinue` | `boolean` | `false`  | 仅 v1：关闭宿主自带的通用自动续接回合。              |
+| `verbose`                     | `boolean` | `false`  | 是否额外记录 info/debug；warning 与 error 始终记录。 |
 
-Defaults need no configuration: one reminder, no interference with subagents, and the host's own auto-continue kept as a safety net.
+默认值无需配置：每次压缩一条提醒、不干预子会话、保留宿主自带的自动续接作为兜底。
 
-The default text is:
+默认文案：
 
 ```text
 请检查是否未完成的任务，如果有则继续工作。所谓的任务包含：issues,plan的待执行规划以及上下文和memory系统里的待做项。
 ```
 
-## Environment variables
+## 环境变量
 
-Environment variables are the only configuration channel available when a v1 host cannot pass options, and are useful for local testing. Explicit options always win over the environment.
+v1 宿主无法传选项时，环境变量是唯一配置通道；本地测试也常用。显式选项优先级高于环境变量。
 
-| Variable                                                 | Maps to                       |
+| 变量                                                     | 对应选项                      |
 | -------------------------------------------------------- | ----------------------------- |
-| `OPENCODE_COMPACT_RESUME_DISABLED`                       | `enabled` (inverted)          |
+| `OPENCODE_COMPACT_RESUME_DISABLED`                       | `enabled`（取反）             |
 | `OPENCODE_COMPACT_RESUME_TEXT`                           | `text`                        |
 | `OPENCODE_COMPACT_RESUME_COOLDOWN_MS`                    | `cooldownMs`                  |
 | `OPENCODE_COMPACT_RESUME_INCLUDE_CHILD_SESSIONS`         | `includeChildSessions`        |
 | `OPENCODE_COMPACT_RESUME_SUPPRESS_BUILTIN_AUTO_CONTINUE` | `suppressBuiltinAutoContinue` |
 | `OPENCODE_COMPACT_RESUME_VERBOSE`                        | `verbose`                     |
 
-Boolean values accept `true/false`, `1/0`, `yes/no` and `on/off` (case-insensitive).
+布尔值接受 `true/false`、`1/0`、`yes/no`、`on/off`（不区分大小写）。
 
-## When to enable `suppressBuiltinAutoContinue`
+## 何时开启 `suppressBuiltinAutoContinue`
 
-OpenCode v1 adds a generic synthetic "continue" turn after compaction. If that turn already resumes your session, leave this option off (default) and the custom reminder is added on top.
+OpenCode v1 在压缩后追加一个通用的合成“继续”回合。若该回合已能让会话继续，保持此选项关闭（默认），自定义提醒叠加其上。
 
-Turn it on when you want exactly one continuation turn driven by the reminder text. The built-in turn is still kept for child sessions and when the parent lookup fails, so a session is never left without a continuation.
+只有在希望由提醒文案驱动唯一一次续接时才开启。内置回合仍保留给子会话以及父会话查找失败的情况，会话不会失去续接。
 
-## Troubleshooting
+## 排障
 
-- **No reminder after compaction.** Check that `OPENCODE_COMPACT_RESUME_DISABLED` is unset, the session is not a child session, and v1 is 1.18.29 or newer.
-- **Git install fails in v2.** The specifier likely starts with `name@`. v2 splits at the last `@` and then installs from the registry; use the bare `git+https://…` URL.
-- **Git install fails in both hosts.** The clone needs anonymous access to the repository, and the build needs the npm registry for dev dependencies. Check the host log for the `Failed to install plugin` line.
-- **Reminder text is not applied.** v1 needs tuple options or the environment variable; v2 reads the `options` field at plugin load.
-- **Two reminders in one session.** The host emitted duplicate events; the 15 s cooldown is per session, raise `cooldownMs`.
-- **Delivery errors in the log.** Set `verbose` to see info lines; warnings and errors carry the session id and the transport error.
+- **压缩后没有提醒**：确认未设置 `OPENCODE_COMPACT_RESUME_DISABLED`、会话不是子会话、v1 版本不低于 1.18.29。
+- **v2 安装失败**：说明符可能以 `name@` 开头。v2 按最后一个 `@` 切分后会尝试从 registry 安装；改用裸 `git+https://…`。
+- **两个宿主都装不上**：克隆需要仓库匿名可访问，构建需要 npm registry 提供开发依赖；查看宿主日志中的 `Failed to install plugin`。
+- **提醒文案没生效**：v1 需使用元组选项或环境变量；v2 在插件加载时读取 `options` 字段。
+- **同一会话收到两条提醒**：宿主重复派发事件；15 秒冷却按会话计，可调大 `cooldownMs`。
+- **日志里有投递错误**：打开 `verbose` 查看 info 行；warning 与 error 会带上会话 id 与传输错误。
 
-## Development
+## 开发
 
-Development needs Node 18.18 or newer for the build and tests. The lint stack warns about unsupported engines on Node 18; Node 20.19 or newer removes those warnings.
+开发需要 Node 18.18 以上用于构建与测试。Node 18 上 lint 栈会提示引擎不支持；升到 Node 20.19 以上可消除提示。
 
 ```sh
 npm install
-npm run check        # lint + typecheck + build + tests
-npm run build        # emit dist/
-npm test             # build then run node:test against dist/
+npm run check        # lint + typecheck + 构建 + 测试
+npm run build        # 输出 dist/
+npm test             # 先构建，再用 node:test 跑 dist/
 ```
 
-Layout:
+目录：
 
 ```text
-src/constants.ts   plugin id, default text, cooldown
-src/options.ts     option/environment normalization
-src/injector.ts    shared injection core (dedupe, cooldown, child sessions, errors)
-src/v1.ts          v1 hooks (event, experimental.compaction.autocontinue)
-src/v2.ts          v2 server part (event subscription, synthetic injection)
-src/index.ts       hybrid entrypoint (default export with setup + server)
-tests/             node:test suites against the built output
+src/constants.ts   插件 id、默认文案、冷却
+src/options.ts     选项与环境变量归一化
+src/injector.ts    共用注入内核（去重、冷却、子会话、错误）
+src/v1.ts          v1 钩子（event、experimental.compaction.autocontinue）
+src/v2.ts          v2 服务端部分（事件订阅、合成注入）
+src/index.ts       混合入口（默认导出含 setup 与 server）
+tests/             针对构建产物运行 node:test 套件
 ```
 
-## Releasing
+## 发布
 
-A tag is the release. Users pin one with `...#v0.1.1`, and the checkout builds `dist/` through the `prepare` script.
+tag 即发布。用户用 `...#v0.1.1` 固定版本，安装时由 `prepare` 构建 `dist/`。
 
 ```sh
 git tag v0.1.2
