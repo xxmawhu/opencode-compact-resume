@@ -88,23 +88,34 @@ test("a failing child probe does not block the reminder", async () => {
   assert.ok(logs.some((entry) => entry.level === "warn"));
 });
 
-test("a rejected send is retried and still injects exactly once", async () => {
+test("a rejected send is retried once and still injects exactly once", async () => {
   const logs = [];
   let attempts = 0;
   const sent = [];
   const injector = createResumeInjector(baseConfig(), {
     send: async (sessionID, text) => {
       attempts += 1;
-      if (attempts === 1) throw new Error("transport down");
+      if (attempts === 1) {
+        const error = new Error("UnknownError");
+        error.data = { message: "Agent not found: Sisyphus-Junior" };
+        throw error;
+      }
       sent.push({ sessionID, text });
     },
-    log: (level) => logs.push(level),
+    log: (level, message, extra) => logs.push({ level, message, extra }),
   });
 
   assert.equal(await injector.handle("s1", "test"), true);
   assert.equal(attempts, 2);
   assert.equal(sent.length, 1);
-  assert.ok(logs.includes("warn"));
+
+  // Both the retry and the recovery are visible in the default log, and the
+  // flattened host error keeps its actionable `data.message`.
+  const retry = logs.find((entry) => entry.message.includes("retrying in 1s"));
+  assert.equal(retry.level, "warn");
+  assert.equal(retry.extra.retryInMs, 1000);
+  assert.equal(retry.extra.error.data.message, "Agent not found: Sisyphus-Junior");
+  assert.ok(logs.some((entry) => entry.message.includes("recovered on retry")));
 });
 
 test("gives up after the retry budget without recording the session", async () => {
@@ -119,12 +130,12 @@ test("gives up after the retry budget without recording the session", async () =
   });
 
   assert.equal(await injector.handle("s1", "test"), false);
-  assert.equal(attempts, 3);
+  assert.equal(attempts, 2);
   assert.ok(logs.includes("error"));
 
   // Failure keeps no state, so the next compaction event tries again.
   assert.equal(await injector.handle("s1", "test"), false);
-  assert.equal(attempts, 6);
+  assert.equal(attempts, 4);
 });
 
 test("a second call while the first is in flight is skipped", async () => {

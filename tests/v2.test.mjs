@@ -173,7 +173,8 @@ test("missing transports are logged and do not crash the subscription", async ()
     });
     const cleanup = await setupV2(ctx);
     try {
-      await waitFor(() => errors.some((line) => line.includes("failed to inject")));
+      // The plugin retries once after 1s before giving up.
+      await waitFor(() => errors.some((line) => line.includes("failed to inject")), 3000);
       assert.equal(calls.synthetic.length, 0);
     } finally {
       cleanup();

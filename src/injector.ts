@@ -27,16 +27,40 @@ export interface ResumeInjector {
 }
 
 /**
- * Backoff between delivery attempts. A rejected send means the host never
- * accepted the reminder, so retrying is what turns "compaction happened but no
- * reminder" into "exactly one reminder". The delays stay short because the
- * host waits for this hook.
+ * One retry after a second. A rejected send means the host never accepted the
+ * reminder, so a single retry turns transient transport failures into
+ * "exactly one reminder"; further attempts are pointless because v1 can also
+ * accept a prompt and still drop the turn (see opencode#46842), which no
+ * client-side retry can detect. The hook is awaited by the host, so the wait
+ * stays short.
  */
-const RETRY_DELAYS_MS = [150, 400];
+const RETRY_DELAY_MS = 1_000;
+/** First attempt plus one retry. */
+const MAX_ATTEMPTS = 2;
 
 export function describeError(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
+}
+
+/**
+ * Keep the full host error for the log sink. OpenCode v1 flattens most failures
+ * to "UnknownError" and stores the real reason in `error.data.message`, so
+ * logging `message` alone loses the only actionable field.
+ */
+export function serializeError(error: unknown): Record<string, unknown> {
+  if (!(error instanceof Error)) return { message: String(error) };
+
+  const serialized: Record<string, unknown> = {
+    name: error.name,
+    message: error.message,
+  };
+  const data = (error as { data?: unknown }).data;
+  if (data !== undefined) serialized.data = data;
+  const code = (error as { code?: unknown }).code;
+  if (code !== undefined) serialized.code = code;
+  if (error.stack) serialized.stack = error.stack;
+  return serialized;
 }
 
 export function createResumeInjector(config: ResumeConfig, deps: InjectorDeps): ResumeInjector {
@@ -54,24 +78,33 @@ export function createResumeInjector(config: ResumeConfig, deps: InjectorDeps): 
 
   const sendWithRetry = async (sessionID: string, text: string): Promise<void> => {
     let lastError: unknown;
-    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
       try {
         await deps.send(sessionID, text);
+        if (attempt > 1) {
+          // [log-review] warning because: (1) the first attempt was rejected,
+          // (2) the session resumes, so this is not an error, (3) the operator
+          // still needs the recovery visible in the default log.
+          log("warn", "reminder delivery recovered on retry", {
+            sessionID,
+            attempts: attempt,
+            error: serializeError(lastError),
+          });
+        }
         return;
       } catch (error) {
         lastError = error;
-        const delay = RETRY_DELAYS_MS[attempt];
-        if (delay === undefined) break;
+        if (attempt === MAX_ATTEMPTS) break;
         // [log-review] warning because: (1) a single rejected send is a
-        // transient transport problem, (2) the retry usually succeeds, (3)
+        // transient transport problem, (2) the retry may still succeed, (3)
         // the final failure is logged as error by the caller.
-        log("warn", "reminder delivery rejected; retrying", {
+        log("warn", "reminder delivery rejected; retrying in 1s", {
           sessionID,
-          attempt: attempt + 1,
-          retryInMs: delay,
-          error: describeError(error),
+          attempt,
+          retryInMs: RETRY_DELAY_MS,
+          error: serializeError(error),
         });
-        await sleep(delay);
+        await sleep(RETRY_DELAY_MS);
       }
     }
     throw lastError;
@@ -108,7 +141,7 @@ export function createResumeInjector(config: ResumeConfig, deps: InjectorDeps): 
             // this event only, no session state is lost.
             log("warn", "child-session lookup unavailable; injecting anyway", {
               sessionID,
-              error: describeError(error),
+              error: serializeError(error),
             });
           }
           if (child) {
@@ -124,7 +157,8 @@ export function createResumeInjector(config: ResumeConfig, deps: InjectorDeps): 
         log("error", "failed to inject unfinished-task reminder", {
           source,
           sessionID,
-          error: describeError(error),
+          attempts: MAX_ATTEMPTS,
+          error: serializeError(error),
         });
         return false;
       } finally {
