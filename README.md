@@ -179,27 +179,6 @@ tests/             node:test suites against the built output
 
 ## Releasing
 
-Distribution runs through the GitHub repository: users install the `git+https://github.com/xxmawhu/opencode-compact-resume.git` specifier, and tags publish to npm through GitHub Actions.
+The git tag is the release unit: users pin a version with `git+https://github.com/xxmawhu/opencode-compact-resume.git#v0.1.2`, and the checkout builds `dist/` through the `prepare` script.
 
-Publishing uses npm trusted publishing (OIDC): no npm token is stored in the repository. The npm package is bound to this repository and to `.github/workflows/publish.yml`, so a tag push is authenticated by a short-lived GitHub Actions identity.
-
-```sh
-git tag v0.1.2
-git push origin v0.1.2
-```
-
-The workflow runs `npm ci` and `npm publish`; provenance attestations are generated automatically.
-
-Trusted publishing requires the npm package to exist, so the very first version was bootstrapped once with an interactive one-time password and bound to this repository afterwards.
-
-## Compatibility
-
-| Host                  | Entrypoint | Status      |
-| --------------------- | ---------- | ----------- |
-| OpenCode v1 ≥ 1.18.29 | `server()` | supported   |
-| OpenCode v1 < 1.18.29 | —          | unsupported |
-| OpenCode v2           | `setup()`  | supported   |
-
-## License
-
-MIT
+The npm registry is not used yet. A package must exist on npm before a trusted publisher can be bound to it, and the first publish needs a two-factor confirmation from the account that owns the name. Once that one-time publish is done, bind the repository with `npm trust github opencode-compact-resume --file publish.yml --repo xxmawhu/opencode-compact-resume --allow-publish`, then switch `.github/workflows/publish.yml` back to a tag trigger. Publishing is then fully OIDC-based: no npm token is stored anywhere, and provenance is generated automatically.
