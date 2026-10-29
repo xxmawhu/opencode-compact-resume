@@ -95,9 +95,11 @@ With options (tuple form):
 }
 ```
 
-### From the npm registry
+### No npm package
 
-Registry publication is pending; the package name is not yet resolvable from the public registry. Once released, use `"plugins": ["opencode-compact-resume"]` in v2 or `"plugin": ["opencode-compact-resume"]` in v1.
+This plugin is distributed from the repository only. There is no npm package, and none is required: the host accepts the git specifier in the form shown above.
+
+npm still takes part in the install, but as a fetcher, not as a registry lookup, so the plugin works even though the package name is not on the public registry.
 
 ## Verify the install
 
@@ -179,6 +181,11 @@ tests/             node:test suites against the built output
 
 ## Releasing
 
-The git tag is the release unit: users pin a version with `git+https://github.com/xxmawhu/opencode-compact-resume.git#v0.1.2`, and the checkout builds `dist/` through the `prepare` script.
+A tag is the release. Users pin one with `git+https://github.com/xxmawhu/opencode-compact-resume.git#v0.1.1`; the checkout builds `dist/` through the `prepare` script.
 
-The npm registry is not used yet. A package must exist on npm before a trusted publisher can be bound to it, and the first publish needs a two-factor confirmation from the account that owns the name. Once that one-time publish is done, bind the repository with `npm trust github opencode-compact-resume --file publish.yml --repo xxmawhu/opencode-compact-resume --allow-publish`, then switch `.github/workflows/publish.yml` back to a tag trigger. Publishing is then fully OIDC-based: no npm token is stored anywhere, and provenance is generated automatically.
+```sh
+git tag v0.1.2
+git push origin v0.1.2
+```
+
+Nothing is published to a registry. The npm package name stays unclaimed on purpose: publishing requires an npm account with a working second factor, and the account that previously owned it is unusable. If a registry release is wanted later, create a fresh account, run `npm publish` once with that account's OTP, then `npm trust github opencode-compact-resume --file publish.yml --repo xxmawhu/opencode-compact-resume --allow-publish` and restore a tag-triggered workflow, so every later release authenticates through OIDC without storing a token.
