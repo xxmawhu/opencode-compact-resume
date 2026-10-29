@@ -85,7 +85,7 @@ test("subscribes to compaction.ended and injects a synthetic reminder", async ()
 
 test("options customize the injected text", async () => {
   const { ctx, calls } = makeContext({
-    options: { text: "keep going", cooldownMs: 0 },
+    options: { text: "keep going" },
     events: [compaction("s1")],
   });
   const cleanup = await setupV2(ctx);
@@ -99,7 +99,7 @@ test("options customize the injected text", async () => {
 
 test("unrelated events are ignored", async () => {
   const { ctx, calls } = makeContext({
-    options: { cooldownMs: 0 },
+    options: {},
     events: [
       { type: "session.idle", data: { sessionID: "s1" } },
       compaction("s1"),
@@ -116,13 +116,12 @@ test("unrelated events are ignored", async () => {
   }
 });
 
-test("duplicate compaction events inject once per cooldown window", async () => {
+test("every compaction event injects once", async () => {
   const { ctx, calls } = makeContext({ events: [compaction("s1"), compaction("s1")] });
   const cleanup = await setupV2(ctx);
   try {
-    await waitFor(() => calls.synthetic.length === 1);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.equal(calls.synthetic.length, 1);
+    await waitFor(() => calls.synthetic.length === 2);
+    assert.equal(calls.synthetic.length, 2);
   } finally {
     cleanup();
   }
@@ -130,7 +129,7 @@ test("duplicate compaction events inject once per cooldown window", async () => 
 
 test("child sessions are skipped", async () => {
   const { ctx, calls } = makeContext({
-    options: { cooldownMs: 0 },
+    options: {},
     sessions: { child: { id: "child", parentID: "parent" } },
     events: [compaction("child"), compaction("s1")],
   });
@@ -145,7 +144,7 @@ test("child sessions are skipped", async () => {
 
 test("falls back to session.prompt when synthetic is unavailable", async () => {
   const { ctx, calls } = makeContext({
-    options: { cooldownMs: 0 },
+    options: {},
     withSynthetic: false,
     withPrompt: true,
     events: [compaction("s1")],
@@ -168,7 +167,7 @@ test("missing transports are logged and do not crash the subscription", async ()
   };
   try {
     const { ctx, calls } = makeContext({
-      options: { cooldownMs: 0 },
+      options: {},
       withSynthetic: false,
       events: [compaction("s1")],
     });

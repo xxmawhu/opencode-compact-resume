@@ -5,7 +5,7 @@ import { createResumeInjector } from "../dist/injector.js";
 import { normalizeOptions } from "../dist/options.js";
 
 function baseConfig(overrides = {}) {
-  return normalizeOptions({ cooldownMs: 1000, text: "resume", ...overrides }, {});
+  return normalizeOptions({ text: "resume", ...overrides }, {});
 }
 
 function recorder(overrides = {}) {
@@ -20,31 +20,20 @@ function recorder(overrides = {}) {
   return { sent, calls, deps };
 }
 
-test("injects once and records the session timestamp", async () => {
+test("each compaction event injects once", async () => {
   const { sent, deps } = recorder();
   const injector = createResumeInjector(baseConfig(), deps);
 
   assert.equal(await injector.handle("s1", "test"), true);
   assert.deepEqual(sent, [{ sessionID: "s1", text: "resume" }]);
 
-  assert.equal(await injector.handle("s1", "test"), false);
-  assert.equal(sent.length, 1);
-});
-
-test("cooldown expires and allows a later injection", async () => {
-  let now = 10_000;
-  const { sent, deps } = recorder({ now: () => now });
-  const injector = createResumeInjector(baseConfig(), deps);
-
-  assert.equal(await injector.handle("s1", "test"), true);
-  now = 10_999;
-  assert.equal(await injector.handle("s1", "test"), false);
-  now = 11_001;
+  // A second event means a second compaction, which must inject again: there
+  // is no time-based window that could swallow it.
   assert.equal(await injector.handle("s1", "test"), true);
   assert.equal(sent.length, 2);
 });
 
-test("sessions are tracked independently", async () => {
+test("sessions inject independently", async () => {
   const { sent, deps } = recorder();
   const injector = createResumeInjector(baseConfig(), deps);
 
@@ -121,13 +110,11 @@ test("a rejected send is retried and still injects exactly once", async () => {
 test("gives up after the retry budget without recording the session", async () => {
   const logs = [];
   let attempts = 0;
-  let now = 10_000;
   const injector = createResumeInjector(baseConfig(), {
     send: async () => {
       attempts += 1;
       throw new Error("transport down");
     },
-    now: () => now,
     log: (level) => logs.push(level),
   });
 
@@ -135,8 +122,7 @@ test("gives up after the retry budget without recording the session", async () =
   assert.equal(attempts, 3);
   assert.ok(logs.includes("error"));
 
-  // No timestamp was recorded, so the next compaction event tries again.
-  now += 100;
+  // Failure keeps no state, so the next compaction event tries again.
   assert.equal(await injector.handle("s1", "test"), false);
   assert.equal(attempts, 6);
 });

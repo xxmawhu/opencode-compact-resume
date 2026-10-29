@@ -1,4 +1,4 @@
-import { DEFAULT_COOLDOWN_MS, DEFAULT_TEXT, ENV_PREFIX } from "./constants.js";
+import { DEFAULT_TEXT, ENV_PREFIX } from "./constants.js";
 
 /**
  * Resolved runtime configuration. Both entrypoints normalize to this shape so
@@ -9,8 +9,6 @@ export interface ResumeConfig {
   readonly enabled: boolean;
   /** Text injected into the session after compaction completes. */
   readonly text: string;
-  /** Minimum interval between injections into the same session. */
-  readonly cooldownMs: number;
   /** Inject into child (subagent) sessions as well. Defaults to false. */
   readonly includeChildSessions: boolean;
   /**
@@ -26,7 +24,6 @@ export interface ResumeConfig {
 export interface RawOptions {
   readonly enabled?: unknown;
   readonly text?: unknown;
-  readonly cooldownMs?: unknown;
   readonly includeChildSessions?: unknown;
   readonly suppressBuiltinAutoContinue?: unknown;
   readonly verbose?: unknown;
@@ -46,17 +43,6 @@ function toBoolean(value: unknown): boolean | undefined {
   return undefined;
 }
 
-function toCooldown(value: unknown): number | undefined {
-  let candidate = Number.NaN;
-  if (typeof value === "number") {
-    candidate = value;
-  } else if (typeof value === "string" && value.trim() !== "") {
-    candidate = Number(value);
-  }
-  if (!Number.isFinite(candidate) || candidate < 0) return undefined;
-  return Math.floor(candidate);
-}
-
 function toText(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const trimmed = value.trim();
@@ -69,7 +55,6 @@ function toText(value: unknown): string | undefined {
  * Environment variables (v1 has no options channel):
  *   OPENCODE_COMPACT_RESUME_DISABLED
  *   OPENCODE_COMPACT_RESUME_TEXT
- *   OPENCODE_COMPACT_RESUME_COOLDOWN_MS
  *   OPENCODE_COMPACT_RESUME_INCLUDE_CHILD_SESSIONS
  *   OPENCODE_COMPACT_RESUME_SUPPRESS_BUILTIN_AUTO_CONTINUE
  *   OPENCODE_COMPACT_RESUME_VERBOSE
@@ -81,10 +66,6 @@ export function normalizeOptions(raw?: RawOptions | null, env: Env = process.env
   return {
     enabled: toBoolean(options.enabled) ?? (disabled === undefined ? true : !disabled),
     text: toText(options.text) ?? toText(env[`${ENV_PREFIX}TEXT`]) ?? DEFAULT_TEXT,
-    cooldownMs:
-      toCooldown(options.cooldownMs) ??
-      toCooldown(env[`${ENV_PREFIX}COOLDOWN_MS`]) ??
-      DEFAULT_COOLDOWN_MS,
     includeChildSessions:
       toBoolean(options.includeChildSessions) ??
       toBoolean(env[`${ENV_PREFIX}INCLUDE_CHILD_SESSIONS`]) ??

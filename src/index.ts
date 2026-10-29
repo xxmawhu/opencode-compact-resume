@@ -56,5 +56,5 @@ const plugin: HybridPlugin = {
 
 export default plugin;
 
-export { DEFAULT_COOLDOWN_MS, DEFAULT_TEXT, PLUGIN_ID } from "./constants.js";
+export { DEFAULT_TEXT, PLUGIN_ID } from "./constants.js";
 export type { RawOptions, ResumeConfig } from "./options.js";

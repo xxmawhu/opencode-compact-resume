@@ -14,7 +14,6 @@ export interface InjectorDeps {
   /** Optional child-session probe used when includeChildSessions is false. */
   isChildSession?(sessionID: string): Promise<boolean>;
   log?: InjectorLog;
-  now?: () => number;
 }
 
 export interface ResumeInjector {
@@ -26,9 +25,6 @@ export interface ResumeInjector {
    */
   handle(sessionID: string | undefined, source: string): Promise<boolean>;
 }
-
-/** Hard cap on the per-session timestamp map for long-running servers. */
-const MAX_TRACKED_SESSIONS = 512;
 
 /**
  * Backoff between delivery attempts. A rejected send means the host never
@@ -44,26 +40,12 @@ export function describeError(error: unknown): string {
 }
 
 export function createResumeInjector(config: ResumeConfig, deps: InjectorDeps): ResumeInjector {
-  // Insertion order doubles as eviction order for the hard cap below.
-  const lastInjectedAt = new Map<string, number>();
+  // Only overlapping deliveries of one event need guarding: a second event
+  // means a second compaction, which must inject again. No time window is
+  // used because two compactions cannot happen seconds apart, so a window
+  // would only ever suppress legitimate reminders.
   const inFlight = new Set<string>();
-  const now = deps.now ?? Date.now;
   const log = deps.log ?? (() => {});
-
-  const prune = (current: number): void => {
-    const cutoff = current - Math.max(config.cooldownMs, 60_000) * 2;
-    for (const [sessionID, injectedAt] of lastInjectedAt) {
-      if (injectedAt < cutoff) lastInjectedAt.delete(sessionID);
-    }
-    // Invariant: size <= MAX_TRACKED_SESSIONS after this loop. Variant: the
-    // size, which decreases by exactly one per iteration, so the loop runs at
-    // most size - MAX times and terminates.
-    while (lastInjectedAt.size > MAX_TRACKED_SESSIONS) {
-      const oldest = lastInjectedAt.keys().next().value;
-      if (oldest === undefined) break; // Unreachable: size > 0.
-      lastInjectedAt.delete(oldest);
-    }
-  };
 
   const sleep = (ms: number): Promise<void> =>
     new Promise((resolve) => {
@@ -106,17 +88,9 @@ export function createResumeInjector(config: ResumeConfig, deps: InjectorDeps): 
         return false;
       }
       if (inFlight.has(sessionID)) {
-        log("debug", "reminder already in flight; skipping duplicate", { source, sessionID });
-        return false;
-      }
-
-      const current = now();
-      const previous = lastInjectedAt.get(sessionID) ?? 0;
-      if (current - previous < config.cooldownMs) {
-        log("debug", "cooldown active; skipping duplicate", {
+        log("debug", "reminder already in flight; skipping duplicate delivery", {
           source,
           sessionID,
-          elapsedMs: current - previous,
         });
         return false;
       }
@@ -144,12 +118,9 @@ export function createResumeInjector(config: ResumeConfig, deps: InjectorDeps): 
         }
 
         await sendWithRetry(sessionID, config.text);
-        lastInjectedAt.set(sessionID, now());
-        prune(now());
         log("info", "injected unfinished-task reminder after compaction", { source, sessionID });
         return true;
       } catch (error) {
-        // No timestamp is recorded on failure, so a later event may retry.
         log("error", "failed to inject unfinished-task reminder", {
           source,
           sessionID,

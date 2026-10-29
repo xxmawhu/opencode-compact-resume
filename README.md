@@ -15,8 +15,7 @@
 
 两个入口共用同一套注入内核：
 
-- **每次压缩注入且仅注入一次** —— 压缩完成后发出一条提醒；同会话的重复事件与重叠调用会被丢弃，不会注入第二条。
-- **重复事件窗口** —— 同一会话默认 15 秒内的重复事件当作同一次压缩的重复派发，只注入一次。真实压缩本身耗时数秒且会重置上下文，两次压缩不可能落在 15 秒内，因此不会吞掉下一次压缩。
+- **每次压缩注入一次** —— 每个压缩完成事件发出一条提醒；同一次事件的并发重复调用被丢弃。
 - **投递被拒自动重试** —— 按 150 毫秒、400 毫秒退避最多尝试 3 次，成功即停止；三次仍失败记录 error，由下一次压缩事件重新尝试。
 - **跳过子会话** —— 子代理由父会话编排；需要时用 `includeChildSessions` 打开。
 - **失败不影响会话** —— 插件钩子从不向宿主抛错。
@@ -104,7 +103,7 @@ v1 的对象入口（`server()`）需要 OpenCode `1.18.29` 及以上。更旧�
 
 1. v2 执行 `opencode plugin list`，确认列表中有 `opencode-compact-resume`；v1 检查服务日志有无插件加载错误。
 2. 在任意会话触发一次压缩。
-3. 会话收到一次提醒；冷却窗口内的第二次压缩按设计跳过。
+3. 会话收到一次提醒。
 
 ## 选项
 
@@ -112,7 +111,6 @@ v1 的对象入口（`server()`）需要 OpenCode `1.18.29` 及以上。更旧�
 | ----------------------------- | --------- | -------- | ---------------------------------------------------- |
 | `enabled`                     | `boolean` | `true`   | 总开关。                                             |
 | `text`                        | `string`  | 内置提醒 | 压缩后注入的文案；空值或空白使用默认文案。           |
-| `cooldownMs`                  | `number`  | `15000`  | 同一会话重复事件的抑制窗口，不是压缩间隔限制。       |
 | `includeChildSessions`        | `boolean` | `false`  | 是否也向子会话（子代理）注入。                       |
 | `suppressBuiltinAutoContinue` | `boolean` | `false`  | 仅 v1：关闭宿主自带的通用自动续接回合。              |
 | `verbose`                     | `boolean` | `false`  | 是否额外记录 info/debug；warning 与 error 始终记录。 |
@@ -133,8 +131,6 @@ v1 宿主无法传选项时，环境变量是唯一配置通道；本地测试�
 | -------------------------------------------------------- | ----------------------------- |
 | `OPENCODE_COMPACT_RESUME_DISABLED`                       | `enabled`（取反）             |
 | `OPENCODE_COMPACT_RESUME_TEXT`                           | `text`                        |
-| `OPENCODE_COMPACT_RESUME_COOLDOWN_MS`                    | `cooldownMs`                  |
-| `OPENCODE_COMPACT_RESUME_INCLUDE_CHILD_SESSIONS`         | `includeChildSessions`        |
 | `OPENCODE_COMPACT_RESUME_SUPPRESS_BUILTIN_AUTO_CONTINUE` | `suppressBuiltinAutoContinue` |
 | `OPENCODE_COMPACT_RESUME_VERBOSE`                        | `verbose`                     |
 
@@ -152,7 +148,7 @@ OpenCode v1 在压缩后追加一个通用的合成“继续”回合。若该�
 - **v2 安装失败**：说明符可能以 `name@` 开头。v2 按最后一个 `@` 切分后会尝试从 registry 安装；改用裸 `git+https://…`。
 - **两个宿主都装不上**：克隆需要仓库匿名可访问，构建需要 npm registry 提供开发依赖；查看宿主日志中的 `Failed to install plugin`。
 - **提醒文案没生效**：v1 需使用元组选项或环境变量；v2 在插件加载时读取 `options` 字段。
-- **同一会话收到两条提醒**：宿主重复派发事件；15 秒冷却按会话计，可调大 `cooldownMs`。
+- **同一会话收到两条提醒**：插件被注册了两次，或宿主重复派发同一压缩事件；确认插件只注册一次。
 - **日志里有投递错误**：打开 `verbose` 查看 info 行；warning 与 error 会带上会话 id 与传输错误。
 
 ## 开发
@@ -169,9 +165,9 @@ npm test             # 先构建，再用 node:test 跑 dist/
 目录：
 
 ```text
-src/constants.ts   插件 id、默认文案、冷却
+src/constants.ts   插件 id、默认文案
 src/options.ts     选项与环境变量归一化
-src/injector.ts    共用注入内核（去重、冷却、子会话、错误）
+src/injector.ts    共用注入内核（并发去重、重试、子会话、错误）
 src/v1.ts          v1 钩子（event、experimental.compaction.autocontinue）
 src/v2.ts          v2 服务端部分（事件订阅、合成注入）
 src/index.ts       混合入口（默认导出含 setup 与 server）

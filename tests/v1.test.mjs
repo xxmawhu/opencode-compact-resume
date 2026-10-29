@@ -6,7 +6,7 @@ import { normalizeOptions } from "../dist/options.js";
 import { createV1Hooks } from "../dist/v1.js";
 
 function config(overrides = {}) {
-  return normalizeOptions({ cooldownMs: 0, text: "resume", ...overrides }, {});
+  return normalizeOptions({ text: "resume", ...overrides }, {});
 }
 
 function client(overrides = {}) {
@@ -182,7 +182,7 @@ test("server() accepts v1 tuple options", async () => {
         },
       },
     },
-    { text: "custom reminder", cooldownMs: 0 },
+    { text: "custom reminder" },
   );
 
   await hooks.event(compactionEvent);
