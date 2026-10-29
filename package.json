@@ -4,9 +4,6 @@
   "description": "OpenCode plugin (v1 + v2): after context compaction, remind the agent to resume unfinished issues, plans, context and memory todos.",
   "type": "module",
   "license": "MIT",
-  "publishConfig": {
-    "access": "public"
-  },
   "keywords": [
     "opencode",
     "opencode-plugin",
@@ -41,8 +38,7 @@
     "format": "prettier --write \"{src,tests}/**/*.{ts,mjs,json}\" \"*.{json,md,yaml,yml}\" \".github/**/*.{yml,yaml}\"",
     "format:check": "prettier --check \"{src,tests}/**/*.{ts,mjs,json}\" \"*.{json,md,yaml,yml}\" \".github/**/*.{yml,yaml}\"",
     "test": "npm run build && node --test tests/*.test.mjs",
-    "check": "npm run lint && npm run typecheck && npm run test",
-    "prepublishOnly": "npm run check"
+    "check": "npm run lint && npm run typecheck && npm run test"
   },
   "devDependencies": {
     "@eslint/js": "^9.16.0",

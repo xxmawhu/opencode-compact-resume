@@ -188,4 +188,4 @@ git tag v0.1.2
 git push origin v0.1.2
 ```
 
-Nothing is published to a registry. The npm package name stays unclaimed on purpose: publishing requires an npm account with a working second factor, and the account that previously owned it is unusable. If a registry release is wanted later, create a fresh account, run `npm publish` once with that account's OTP, then `npm trust github opencode-compact-resume --file publish.yml --repo xxmawhu/opencode-compact-resume --allow-publish` and restore a tag-triggered workflow, so every later release authenticates through OIDC without storing a token.
+Nothing is published to a registry: the plugin is distributed from the repository, and the npm package name stays unclaimed.
