@@ -99,21 +99,46 @@ test("a failing child probe does not block the reminder", async () => {
   assert.ok(logs.some((entry) => entry.level === "warn"));
 });
 
-test("send failure is logged and can be retried immediately", async () => {
+test("a rejected send is retried and still injects exactly once", async () => {
   const logs = [];
   let attempts = 0;
+  const sent = [];
   const injector = createResumeInjector(baseConfig(), {
-    send: async () => {
+    send: async (sessionID, text) => {
       attempts += 1;
       if (attempts === 1) throw new Error("transport down");
+      sent.push({ sessionID, text });
     },
     log: (level) => logs.push(level),
   });
 
-  assert.equal(await injector.handle("s1", "test"), false);
   assert.equal(await injector.handle("s1", "test"), true);
   assert.equal(attempts, 2);
+  assert.equal(sent.length, 1);
+  assert.ok(logs.includes("warn"));
+});
+
+test("gives up after the retry budget without recording the session", async () => {
+  const logs = [];
+  let attempts = 0;
+  let now = 10_000;
+  const injector = createResumeInjector(baseConfig(), {
+    send: async () => {
+      attempts += 1;
+      throw new Error("transport down");
+    },
+    now: () => now,
+    log: (level) => logs.push(level),
+  });
+
+  assert.equal(await injector.handle("s1", "test"), false);
+  assert.equal(attempts, 3);
   assert.ok(logs.includes("error"));
+
+  // No timestamp was recorded, so the next compaction event tries again.
+  now += 100;
+  assert.equal(await injector.handle("s1", "test"), false);
+  assert.equal(attempts, 6);
 });
 
 test("a second call while the first is in flight is skipped", async () => {

@@ -30,6 +30,14 @@ export interface ResumeInjector {
 /** Hard cap on the per-session timestamp map for long-running servers. */
 const MAX_TRACKED_SESSIONS = 512;
 
+/**
+ * Backoff between delivery attempts. A rejected send means the host never
+ * accepted the reminder, so retrying is what turns "compaction happened but no
+ * reminder" into "exactly one reminder". The delays stay short because the
+ * host waits for this hook.
+ */
+const RETRY_DELAYS_MS = [150, 400];
+
 export function describeError(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
@@ -55,6 +63,36 @@ export function createResumeInjector(config: ResumeConfig, deps: InjectorDeps): 
       if (oldest === undefined) break; // Unreachable: size > 0.
       lastInjectedAt.delete(oldest);
     }
+  };
+
+  const sleep = (ms: number): Promise<void> =>
+    new Promise((resolve) => {
+      setTimeout(resolve, ms);
+    });
+
+  const sendWithRetry = async (sessionID: string, text: string): Promise<void> => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+      try {
+        await deps.send(sessionID, text);
+        return;
+      } catch (error) {
+        lastError = error;
+        const delay = RETRY_DELAYS_MS[attempt];
+        if (delay === undefined) break;
+        // [log-review] warning because: (1) a single rejected send is a
+        // transient transport problem, (2) the retry usually succeeds, (3)
+        // the final failure is logged as error by the caller.
+        log("warn", "reminder delivery rejected; retrying", {
+          sessionID,
+          attempt: attempt + 1,
+          retryInMs: delay,
+          error: describeError(error),
+        });
+        await sleep(delay);
+      }
+    }
+    throw lastError;
   };
 
   return {
@@ -105,7 +143,7 @@ export function createResumeInjector(config: ResumeConfig, deps: InjectorDeps): 
           }
         }
 
-        await deps.send(sessionID, config.text);
+        await sendWithRetry(sessionID, config.text);
         lastInjectedAt.set(sessionID, now());
         prune(now());
         log("info", "injected unfinished-task reminder after compaction", { source, sessionID });
