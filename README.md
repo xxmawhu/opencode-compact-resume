@@ -30,12 +30,10 @@
 需要 Node 18.18 以上，并可访问 GitHub。`dist/` 不入库；包声明了 `prepare`，安装时会自动构建。
 
 ```sh
-npm install 'git+https://github.com/xxmawhu/opencode-compact-resume.git#v0.1.1'
+npm install 'git+https://github.com/xxmawhu/opencode-compact-resume.git'
 ```
 
-用 `#<tag>` 或 `#<commit>` 固定版本；不加后缀时 npm 跟随默认分支。
-
-仓库是唯一发布源。
+不加后缀即跟随仓库默认分支，安装到的就是最新版本；仓库是唯一发布源，重启宿主后生效。
 
 ### 2. 配置 OpenCode
 
@@ -45,7 +43,7 @@ npm install 'git+https://github.com/xxmawhu/opencode-compact-resume.git#v0.1.1'
 
 ```jsonc
 {
-  "plugins": ["git+https://github.com/xxmawhu/opencode-compact-resume.git#v0.1.1"],
+  "plugins": ["git+https://github.com/xxmawhu/opencode-compact-resume.git"],
 }
 ```
 
@@ -61,7 +59,7 @@ opencode plugin add git+https://github.com/xxmawhu/opencode-compact-resume.git
 {
   "plugins": [
     {
-      "package": "git+https://github.com/xxmawhu/opencode-compact-resume.git#v0.1.1",
+      "package": "git+https://github.com/xxmawhu/opencode-compact-resume.git",
       "options": { "text": "继续未完成的任务。" },
     },
   ],
@@ -78,7 +76,7 @@ v1 的对象入口（`server()`）需要 OpenCode `1.18.29` 及以上。更旧�
 
 ```jsonc
 {
-  "plugin": ["git+https://github.com/xxmawhu/opencode-compact-resume.git#v0.1.1"],
+  "plugin": ["git+https://github.com/xxmawhu/opencode-compact-resume.git"],
 }
 ```
 
@@ -88,7 +86,7 @@ v1 的对象入口（`server()`）需要 OpenCode `1.18.29` 及以上。更旧�
 {
   "plugin": [
     [
-      "git+https://github.com/xxmawhu/opencode-compact-resume.git#v0.1.1",
+      "git+https://github.com/xxmawhu/opencode-compact-resume.git",
       { "text": "继续未完成的任务。" },
     ],
   ],
@@ -97,7 +95,7 @@ v1 的对象入口（`server()`）需要 OpenCode `1.18.29` 及以上。更旧�
 
 ### 3. 重启宿主
 
-插件在启动时加载，修改配置后需要重启 OpenCode。
+插件在启动时加载，修改配置后需要重启 OpenCode。之后跟随默认分支取最新：v2 用 `opencode plugin update`，v1 重新安装或重启宿主。
 
 ## 验证安装
 
@@ -177,7 +175,7 @@ tests/             针对构建产物运行 node:test 套件
 
 ## 发布
 
-tag 即发布。用户用 `...#v0.1.1` 固定版本，安装时由 `prepare` 构建 `dist/`。
+tag 只作仓库历史标记，安装默认跟随默认分支取最新；`prepare` 在安装时构建 `dist/`。
 
 ```sh
 git tag v0.1.2
