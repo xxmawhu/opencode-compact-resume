@@ -4,14 +4,14 @@
 
 上下文压缩只保留摘要、丢弃细节。没有提醒时，agent 常在压缩后直接结束回合，丢掉正在执行的任务。本插件每次压缩只发一条提醒，其余时间不介入。
 
-读者：安装插件的 OpenCode 用户，以及从源码构建的维护者。
+读者：安装并使用插件的 OpenCode 用户。
 
 ## 工作方式
 
-| 宿主        | 触发                            | 投递                                              |
-| ----------- | ------------------------------- | ------------------------------------------------- |
-| OpenCode v1 | `session.compacted` 事件        | `client.session.promptAsync`（失败回退 `prompt`） |
-| OpenCode v2 | `session.compaction.ended` 事件 | `ctx.session.synthetic`（失败回退 `prompt`）      |
+| 宿主        | 触发                            | 投递                                       |
+| ----------- | ------------------------------- | ------------------------------------------ |
+| OpenCode v1 | `session.compacted` 事件        | `client.session.promptAsync`（缺失时回退） |
+| OpenCode v2 | `session.compaction.ended` 事件 | `ctx.session.synthetic`（缺失时回退）      |
 
 两个入口共用同一套注入内核：
 
@@ -23,37 +23,13 @@
 
 ## 安装
 
-三步：从 git 安装、在 OpenCode 配置中引用、重启宿主。
-
-### 1. 从 git 安装
-
-需要 Node 18.18 以上，并可访问 GitHub。`dist/` 不入库；包声明了 `prepare`，安装时会自动构建。
-
-```sh
-npm install 'git+https://github.com/xxmawhu/opencode-compact-resume.git'
-```
-
-不加后缀即跟随仓库默认分支，安装到的就是最新版本；仓库是唯一发布源，重启宿主后生效。
-
-### 2. 配置 OpenCode
-
-#### OpenCode v2
-
-`opencode.jsonc`：
-
-```jsonc
-{
-  "plugins": ["git+https://github.com/xxmawhu/opencode-compact-resume.git"],
-}
-```
-
-或由 CLI 写入该条目：
+### OpenCode v2
 
 ```sh
 opencode plugin add git+https://github.com/xxmawhu/opencode-compact-resume.git
 ```
 
-带选项：
+`plugin add` 负责安装并写入配置，跟随默认分支取最新版本。需要自定义选项时改 `opencode.jsonc`：
 
 ```jsonc
 {
@@ -66,11 +42,11 @@ opencode plugin add git+https://github.com/xxmawhu/opencode-compact-resume.git
 }
 ```
 
-v2 的说明符必须保持裸 URL。宿主按最后一个 `@` 切分 `name@version`，`name@git+https://…` 会被当作 `name` 加版本并回落到 registry；同理不要用 `git+ssh://git@github.com/…`。
+说明符必须保持裸 URL。宿主按最后一个 `@` 切分 `name@version`，`name@git+https://…` 会被当作 `name` 加版本并回落到 registry；同理不要用 `git+ssh://git@github.com/…`。
 
-#### OpenCode v1（>= 1.18.29）
+### OpenCode v1（>= 1.18.29）
 
-v1 的对象入口（`server()`）需要 OpenCode `1.18.29` 及以上。更旧的 v1 版本请以经典函数形式作为本地插件加载。
+v1 的对象入口（`server()`）需要 OpenCode `1.18.29` 及以上。更旧的 v1 请以经典函数形式作为本地插件加载。
 
 `opencode.json`：
 
@@ -80,7 +56,7 @@ v1 的对象入口（`server()`）需要 OpenCode `1.18.29` 及以上。更旧�
 }
 ```
 
-带选项（元组形式）：
+宿主启动时自动安装。带选项用元组形式：
 
 ```jsonc
 {
@@ -93,9 +69,17 @@ v1 的对象入口（`server()`）需要 OpenCode `1.18.29` 及以上。更旧�
 }
 ```
 
-### 3. 重启宿主
+宿主未自动安装时，先手动构建安装：
 
-插件在启动时加载，修改配置后需要重启 OpenCode。之后跟随默认分支取最新：v2 用 `opencode plugin update`，v1 重新安装或重启宿主。
+```sh
+npm install 'git+https://github.com/xxmawhu/opencode-compact-resume.git'
+```
+
+需要 Node 18.18 以上；包内的 `prepare` 会构建 `dist/`。
+
+### 重启宿主
+
+插件在启动时加载，修改配置后重启 OpenCode。之后取最新：v2 用 `opencode plugin update`，v1 重新安装或重启宿主。
 
 ## 验证安装
 
@@ -149,35 +133,3 @@ OpenCode v1 在压缩后追加一个通用的合成“继续”回合。若该�
 - **同一会话收到两条提醒**：插件被注册了两次，或宿主重复派发同一压缩事件；确认插件只注册一次。
 - **日志里有投递错误**：warning 与 error 默认就写日志，带上会话 id、尝试次数与完整错误对象（v1 的真实原因常在 `data.message`，`message` 只剩 `UnknownError`）；`verbose` 才记录 info/debug。
 - **v1 压缩后仍未续跑**：`prompt_async` 可能返回 204 却不调度回合，客户端无法检测；检查是否同时运行多个 OpenCode 实例抢答同一会话，并保留宿主的自动续接作为兜底。
-
-## 开发
-
-开发需要 Node 18.18 以上用于构建与测试。Node 18 上 lint 栈会提示引擎不支持；升到 Node 20.19 以上可消除提示。
-
-```sh
-npm install
-npm run check        # lint + typecheck + 构建 + 测试
-npm run build        # 输出 dist/
-npm test             # 先构建，再用 node:test 跑 dist/
-```
-
-目录：
-
-```text
-src/constants.ts   插件 id、默认文案
-src/options.ts     选项与环境变量归一化
-src/injector.ts    共用注入内核（并发去重、重试、子会话、错误）
-src/v1.ts          v1 钩子（event、experimental.compaction.autocontinue）
-src/v2.ts          v2 服务端部分（事件订阅、合成注入）
-src/index.ts       混合入口（默认导出含 setup 与 server）
-tests/             针对构建产物运行 node:test 套件
-```
-
-## 发布
-
-tag 只作仓库历史标记，安装默认跟随默认分支取最新；`prepare` 在安装时构建 `dist/`。
-
-```sh
-git tag v0.1.2
-git push origin v0.1.2
-```
