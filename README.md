@@ -181,14 +181,16 @@ tests/             node:test suites against the built output
 
 Distribution runs through the GitHub repository: users install the `git+https://github.com/xxmawhu/opencode-compact-resume.git` specifier, and tags publish to npm through GitHub Actions.
 
-To publish, add a granular npm token with publish access as the `NPM_TOKEN` repository secret, then push a tag:
+Publishing uses npm trusted publishing (OIDC): no npm token is stored in the repository. The npm package is bound to this repository and to `.github/workflows/publish.yml`, so a tag push is authenticated by a short-lived GitHub Actions identity.
 
 ```sh
-git tag v0.1.1
-git push origin v0.1.1
+git tag v0.1.2
+git push origin v0.1.2
 ```
 
-The workflow runs `npm ci`, the `prepublishOnly` check, and `npm publish --provenance`.
+The workflow runs `npm ci` and `npm publish`; provenance attestations are generated automatically.
+
+Trusted publishing requires the npm package to exist, so the very first version was bootstrapped once with an interactive one-time password and bound to this repository afterwards.
 
 ## Compatibility
 
