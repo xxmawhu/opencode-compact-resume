@@ -23,31 +23,33 @@ Both entrypoints share the same injection core:
 
 ## Install
 
-OpenCode installs the plugin from its own config. A manual `npm install` is not part of the host flow.
+Three steps: install the package from git, point OpenCode at it, restart the host.
 
-### From git (available now)
+### 1. Install the package from git
 
-The host accepts npm git specifiers. Use the bare URL, which works in both host lines:
+Node 18.18 or newer and network access to GitHub are required. `dist/` is not committed; the package declares `prepare`, so the build runs during installation.
 
-```text
-git+https://github.com/xxmawhu/opencode-compact-resume.git
+```sh
+npm install 'git+https://github.com/xxmawhu/opencode-compact-resume.git#v0.1.1'
 ```
 
-Pin a revision or tag when reproducibility matters: append `#<commit>` or `#v0.1.0`.
+Pin a revision with `#<tag>` or `#<commit>`. Without a suffix npm follows the default branch.
 
-`dist/` is not committed. The package declares `prepare`, so npm installs the dev dependencies of a git dependency and builds the package before linking it. The install needs network access to the repository and the npm registry, plus Node 18.18 or newer.
+The repository is the only release source.
 
-### OpenCode v2
+### 2. Configure OpenCode
+
+#### OpenCode v2
 
 `opencode.jsonc`:
 
 ```jsonc
 {
-  "plugins": ["git+https://github.com/xxmawhu/opencode-compact-resume.git"],
+  "plugins": ["git+https://github.com/xxmawhu/opencode-compact-resume.git#v0.1.1"],
 }
 ```
 
-The CLI can install it and write the config entry:
+Or let the CLI write the entry:
 
 ```sh
 opencode plugin add git+https://github.com/xxmawhu/opencode-compact-resume.git
@@ -59,28 +61,26 @@ With options:
 {
   "plugins": [
     {
-      "package": "git+https://github.com/xxmawhu/opencode-compact-resume.git",
+      "package": "git+https://github.com/xxmawhu/opencode-compact-resume.git#v0.1.1",
       "options": { "text": "Continue the unfinished task." },
     },
   ],
 }
 ```
 
-In v2 keep the specifier bare. The host splits `name@version` at the last `@`, so `name@git+https://…` is read as `name` plus a version and falls back to the registry. For the same reason, use the `https` form rather than `git+ssh://git@github.com/…`.
+Keep the specifier bare in v2. The host splits `name@version` at the last `@`, so `name@git+https://…` is read as `name` plus a version and falls back to the registry. For the same reason, use the `https` form rather than `git+ssh://git@github.com/…`.
 
-### OpenCode v1 (>= 1.18.29)
+#### OpenCode v1 (>= 1.18.29)
 
-v1 object entrypoints (`server()`) require OpenCode `1.18.29` or newer. On older v1 releases, use an older release line of this plugin or load it as a local plugin written in the classic function form.
+v1 object entrypoints (`server()`) require OpenCode `1.18.29` or newer. On older v1 releases, load it as a local plugin written in the classic function form.
 
 `opencode.json`:
 
 ```jsonc
 {
-  "plugin": ["git+https://github.com/xxmawhu/opencode-compact-resume.git"],
+  "plugin": ["git+https://github.com/xxmawhu/opencode-compact-resume.git#v0.1.1"],
 }
 ```
-
-v1 also accepts the `opencode-compact-resume@git+https://…` form: both are parsed by npm's specifier parser.
 
 With options (tuple form):
 
@@ -88,18 +88,16 @@ With options (tuple form):
 {
   "plugin": [
     [
-      "git+https://github.com/xxmawhu/opencode-compact-resume.git",
+      "git+https://github.com/xxmawhu/opencode-compact-resume.git#v0.1.1",
       { "text": "Continue the unfinished task." },
     ],
   ],
 }
 ```
 
-### No npm package
+### 3. Restart the host
 
-This plugin is distributed from the repository only. There is no npm package, and none is required: the host accepts the git specifier in the form shown above.
-
-npm still takes part in the install, but as a fetcher, not as a registry lookup, so the plugin works even though the package name is not on the public registry.
+The plugin loads at startup, so restart OpenCode after changing the config.
 
 ## Verify the install
 
@@ -181,11 +179,9 @@ tests/             node:test suites against the built output
 
 ## Releasing
 
-A tag is the release. Users pin one with `git+https://github.com/xxmawhu/opencode-compact-resume.git#v0.1.1`; the checkout builds `dist/` through the `prepare` script.
+A tag is the release. Users pin one with `...#v0.1.1`, and the checkout builds `dist/` through the `prepare` script.
 
 ```sh
 git tag v0.1.2
 git push origin v0.1.2
 ```
-
-Nothing is published to a registry: the plugin is distributed from the repository, and the npm package name stays unclaimed.
