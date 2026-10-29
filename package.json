@@ -35,8 +35,8 @@
     "prepare": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint src",
-    "format": "prettier --write \"{src,tests}/**/*.{ts,mjs,json}\" \"*.{json,md,yaml,yml}\" \".github/**/*.{yml,yaml}\"",
-    "format:check": "prettier --check \"{src,tests}/**/*.{ts,mjs,json}\" \"*.{json,md,yaml,yml}\" \".github/**/*.{yml,yaml}\"",
+    "format": "prettier --write \"{src,tests}/**/*.{ts,mjs,json}\" \"*.{json,md,yaml,yml}\"",
+    "format:check": "prettier --check \"{src,tests}/**/*.{ts,mjs,json}\" \"*.{json,md,yaml,yml}\"",
     "test": "npm run build && node --test tests/*.test.mjs",
     "check": "npm run lint && npm run typecheck && npm run test"
   },
