@@ -6,3 +6,4 @@ issues/
 plan/
 end_task/
 package-lock.json
+tests/.tmp*/

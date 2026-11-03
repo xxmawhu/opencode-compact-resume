@@ -1,6 +1,6 @@
 {
   "name": "opencode-compact-resume",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "OpenCode plugin (v1 + v2): after context compaction, remind the agent to resume unfinished issues, plans, context and memory todos.",
   "type": "module",
   "license": "MIT",
@@ -26,6 +26,8 @@
   "types": "./dist/index.d.ts",
   "files": [
     "dist",
+    "install",
+    "install.sh",
     "README.md",
     "LICENSE"
   ],
@@ -34,7 +36,7 @@
     "build": "tsc -p tsconfig.build.json",
     "prepare": "npm run build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "lint": "eslint src",
+    "lint": "eslint src tests install",
     "format": "prettier --write \"{src,tests}/**/*.{ts,mjs,json}\" \"*.{json,md,yaml,yml}\"",
     "format:check": "prettier --check \"{src,tests}/**/*.{ts,mjs,json}\" \"*.{json,md,yaml,yml}\"",
     "test": "npm run build && node --test tests/*.test.mjs",

@@ -1,8 +1,9 @@
 # Node / TypeScript
 node_modules/
-dist/
 coverage/
 *.tsbuildinfo
+
+# dist/ is committed: install.sh copies the built plugin without a build step
 
 # 运行时目录（不进入版本控制）
 issues/
@@ -13,6 +14,9 @@ memory/
 !memory/.gitkeep
 tmp-issues/
 /.var/
+
+# 测试产物（install.sh 沙箱目录）
+tests/.tmp*/
 
 # 项目根 AGENTS.md 由模板分发（git init --template / install.sh）生成，不入库
 AGENTS.md

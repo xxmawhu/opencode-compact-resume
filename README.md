@@ -23,7 +23,32 @@
 
 ## 安装
 
-### OpenCode v2
+标准安装方式是把仓库里已构建好的插件文件复制到 OpenCode 配置目录。不构建、不联网、不改配置文件。
+
+```sh
+git clone git@github.com:xxmawhu/opencode-compact-resume.git
+cd opencode-compact-resume
+bash install.sh
+```
+
+| 目标路径                                     | 作用                          |
+| -------------------------------------------- | ----------------------------- |
+| `<config>/plugin/opencode-compact-resume.ts` | v1 本地插件入口               |
+| `<config>/plugin/opencode-compact-resume/`   | 编译后的模块与 `package.json` |
+
+`<config>` 默认 `${XDG_CONFIG_HOME:-$HOME/.config}/opencode`，可用 `OPENCODE_CONFIG_DIR` 覆盖：
+
+```sh
+OPENCODE_CONFIG_DIR=/path/to/opencode bash install.sh
+```
+
+更新：`git pull && bash install.sh`；卸载：`bash install.sh --uninstall`。脚本只复制文件，重复执行覆盖旧副本。`dist/` 随后续提交更新；改动源码后需先 `npm ci && npm run build` 再提交。
+
+若曾用下面的宿主原生方式注册过本插件，先删掉 `opencode.json` 里的条目再运行 `install.sh`，否则同一次压缩会注入两条提醒。安装脚本发现残留注册会打印 warning。
+
+### 备选：宿主原生安装
+
+#### OpenCode v2
 
 ```sh
 opencode plugin add git+https://github.com/xxmawhu/opencode-compact-resume.git
@@ -44,7 +69,7 @@ opencode plugin add git+https://github.com/xxmawhu/opencode-compact-resume.git
 
 说明符必须保持裸 URL。宿主按最后一个 `@` 切分 `name@version`，`name@git+https://…` 会被当作 `name` 加版本并回落到 registry；同理不要用 `git+ssh://git@github.com/…`。
 
-### OpenCode v1（>= 1.18.29）
+#### OpenCode v1（>= 1.18.29）
 
 v1 的对象入口（`server()`）需要 OpenCode `1.18.29` 及以上。更旧的 v1 请以经典函数形式作为本地插件加载。
 
@@ -75,7 +100,7 @@ v1 的对象入口（`server()`）需要 OpenCode `1.18.29` 及以上。更旧�
 
 ## 验证安装
 
-1. v2 执行 `opencode plugin list`，确认列表中有 `opencode-compact-resume`；v1 检查服务日志有无插件加载错误。
+1. 复制安装：`opencode debug info` 的 `plugins:` 列表包含 `<config>/plugin/opencode-compact-resume.ts`。宿主原生安装：v2 执行 `opencode plugin list`，v1 检查服务日志有无插件加载错误。
 2. 在任意会话触发一次压缩。
 3. 会话收到一次提醒。
 
@@ -105,6 +130,7 @@ v1 宿主无法传选项时，环境变量是唯一配置通道；本地测试�
 | -------------------------------------------------------- | ----------------------------- |
 | `OPENCODE_COMPACT_RESUME_DISABLED`                       | `enabled`（取反）             |
 | `OPENCODE_COMPACT_RESUME_TEXT`                           | `text`                        |
+| `OPENCODE_COMPACT_RESUME_INCLUDE_CHILD_SESSIONS`         | `includeChildSessions`        |
 | `OPENCODE_COMPACT_RESUME_SUPPRESS_BUILTIN_AUTO_CONTINUE` | `suppressBuiltinAutoContinue` |
 | `OPENCODE_COMPACT_RESUME_VERBOSE`                        | `verbose`                     |
 
@@ -118,10 +144,20 @@ OpenCode v1 在压缩后追加一个通用的合成“继续”回合。若该�
 
 ## 排障
 
-- **压缩后没有提醒**：确认未设置 `OPENCODE_COMPACT_RESUME_DISABLED`、会话不是子会话、v1 版本不低于 1.18.29。
+- **压缩后没有提醒**：确认未设置 `OPENCODE_COMPACT_RESUME_DISABLED`、会话不是子会话、插件入口出现在 `opencode debug info` 的 `plugins:` 列表。
 - **v2 安装失败**：说明符可能以 `name@` 开头。v2 按最后一个 `@` 切分后会尝试从 registry 安装；改用裸 `git+https://…`。
 - **两个宿主都装不上**：克隆需要仓库匿名可访问，安装时还需要取到构建依赖；查看宿主日志中的 `Failed to install plugin`。
 - **提醒文案没生效**：v1 需使用元组选项或环境变量；v2 在插件加载时读取 `options` 字段。
 - **同一会话收到两条提醒**：插件被注册了两次，或宿主重复派发同一压缩事件；确认插件只注册一次。
 - **日志里有投递错误**：warning 与 error 默认就写日志，带上会话 id、尝试次数与完整错误对象（v1 的真实原因常在 `data.message`，`message` 只剩 `UnknownError`）；`verbose` 才记录 info/debug。
 - **v1 压缩后仍未续跑**：`prompt_async` 可能返回 204 却不调度回合，客户端无法检测；检查是否同时运行多个 OpenCode 实例抢答同一会话，并保留宿主的自动续接作为兜底。
+
+## 开发
+
+```sh
+NODE_ENV=development npm ci    # 安装开发依赖并构建 dist/
+npm run check                  # lint + 类型检查 + 测试（含 install.sh 用例）
+npm run build                  # 只重建 dist/
+```
+
+`dist/` 入库供 `install.sh` 直接复制；改完源码先构建再提交，避免仓库内副本过期。
