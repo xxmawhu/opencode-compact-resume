@@ -5,15 +5,16 @@
 # Usage:
 #   bash install.sh                    # install into ${XDG_CONFIG_HOME:-$HOME/.config}/opencode
 #   OPENCODE_CONFIG_DIR=/path bash install.sh
+#   bash install.sh --verify           # read-only check of the installed copy
 #   bash install.sh --uninstall
 #
 # Installed layout:
 #   <config>/plugin/opencode-compact-resume.ts   v1 legacy entry
-#   <config>/plugin/opencode-compact-resume/     dist modules + package.json
+#   <config>/plugin/opencode-compact-resume/     dist modules + package.json + .install-info
 set -euo pipefail
 
 PLUGIN_NAME="opencode-compact-resume"
-SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd -- "$(dirname -- "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 CONFIG_DIR="${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-${HOME}/.config}/opencode}"
 PLUGIN_DIR="${CONFIG_DIR}/plugin"
 LIB_DIR="${PLUGIN_DIR}/${PLUGIN_NAME}"
@@ -36,6 +37,7 @@ the prebuilt plugin files.
 
 Usage:
   bash install.sh                 install (or update) the plugin
+  bash install.sh --verify        check the installed copy without changing it
   bash install.sh --uninstall     remove the copied plugin files
   bash install.sh --help          show this help
 
@@ -46,6 +48,21 @@ Environment:
 The installer only copies files; it never builds, installs packages or edits
 opencode.json. Restart OpenCode after installing so the plugin is loaded.
 EOF
+}
+
+# Read the shipped package version without extra tooling; the installer only
+# promises bash, and the marker is informational.
+read_plugin_version() {
+  local line
+  if [[ -f "${SCRIPT_DIR}/package.json" ]]; then
+    while IFS= read -r line; do
+      if [[ "${line}" =~ \"version\"[[:space:]]*:[[:space:]]*\"([^\"]+)\" ]]; then
+        printf '%s' "${BASH_REMATCH[1]}"
+        return 0
+      fi
+    done <"${SCRIPT_DIR}/package.json"
+  fi
+  printf 'unknown'
 }
 
 install_plugin() {
@@ -80,7 +97,12 @@ install_plugin() {
   "type": "module"
 }
 EOF
-  chmod 0644 -- "${staging}"/*.js "${staging}/package.json"
+  # Read-only provenance for --verify: tells a current copy apart from one
+  # installed before the mode fix, without touching the host config.
+  cat >"${staging}/.install-info" <<EOF
+{"name":"${PLUGIN_NAME}","version":"$(read_plugin_version)","installedAt":"$(date -u +%Y-%m-%dT%H:%M:%SZ)"}
+EOF
+  chmod 0644 -- "${staging}"/*.js "${staging}/package.json" "${staging}/.install-info"
 
   # Swap the module directory in one rename so a reader never sees a half
   # copied library while a session is loading the plugin.
@@ -96,7 +118,7 @@ EOF
   mv -f -- "${tmp_entry}" "${ENTRY_FILE}"
 
   local modules=("${LIB_DIR}"/*.js)
-  verify_permissions
+  verify_permissions || die "installed copy is not readable by the host account"
 
   info "installed ${ENTRY_FILE}"
   info "installed ${LIB_DIR}/ (${#modules[@]} modules)"
@@ -105,23 +127,75 @@ EOF
   info "restart OpenCode to load the plugin"
 }
 
+# One path check, shared by install (fail closed) and --verify (report all).
+# The mode line is only printed when CHECK_VERBOSE=1 so install stays terse.
+check_path() {
+  local path=$1 mode owner tag="${CHECK_TAG:-install}"
+  if [[ ! -e "${path}" ]]; then
+    printf '[%s] missing installed path: %s\n' "${tag}" "${path}" >&2
+    return 1
+  fi
+  read -r mode owner < <(stat -c '%a %U:%G' -- "${path}")
+  if [[ "${CHECK_VERBOSE:-0}" == 1 ]]; then
+    printf '[%s] %s %s %s\n' "${tag}" "${mode}" "${owner}" "${path}"
+  fi
+  if [[ -d "${path}" ]]; then
+    (( (8#${mode} & 8#005) == 8#005 )) || {
+      printf '[%s] dir is not traversable by other users: %s (mode %s)\n' "${tag}" "${path}" "${mode}" >&2
+      return 1
+    }
+  else
+    (( (8#${mode} & 8#004) == 8#004 )) || {
+      printf '[%s] file is not readable by other users: %s (mode %s)\n' "${tag}" "${path}" "${mode}" >&2
+      return 1
+    }
+  fi
+}
+
 # OpenCode loads plugins from its own process account, which is not necessarily
 # the account that ran install.sh. The loader needs traverse on the module dir
 # and read on every file; anything narrower makes `import` fail before any hook
 # exists, so the failure is silent unless verified here.
 verify_permissions() {
-  local path mode
-  for path in "${LIB_DIR}" "${LIB_DIR}"/*.js "${LIB_DIR}/package.json" "${ENTRY_FILE}"; do
-    [[ -e "${path}" ]] || die "missing installed path: ${path}"
-    mode="$(stat -c '%a' -- "${path}")"
-    if [[ -d "${path}" ]]; then
-      (( (8#${mode} & 8#005) == 8#005 )) ||
-        die "installed dir is not traversable by other users: ${path} (mode ${mode})"
-    else
-      (( (8#${mode} & 8#004) == 8#004 )) ||
-        die "installed file is not readable by other users: ${path} (mode ${mode})"
-    fi
+  local path status=0
+  for path in "${LIB_DIR}" "${LIB_DIR}"/*.js "${LIB_DIR}/package.json" "${LIB_DIR}/.install-info" "${ENTRY_FILE}"; do
+    check_path "${path}" || status=1
   done
+  return "${status}"
+}
+
+# Read-only: never writes, so it is safe to run from any account, including the
+# one OpenCode itself runs as. Exit status is the health signal.
+verify_installed() {
+  local status=0 path
+  if [[ ! -d "${LIB_DIR}" || ! -f "${ENTRY_FILE}" ]]; then
+    printf '[verify] not installed under %s\n' "${CONFIG_DIR}" >&2
+    printf '[verify] run: bash install.sh\n' >&2
+    return 1
+  fi
+
+  printf '[verify] config dir: %s (%s)\n' "${CONFIG_DIR}" "$(stat -c '%U:%G' -- "${CONFIG_DIR}")"
+  printf '[verify] current account: %s (%s)\n' "$(id -un)" "$(id -u)"
+  CHECK_TAG=verify
+  CHECK_VERBOSE=1
+  verify_permissions || status=1
+  unset CHECK_TAG CHECK_VERBOSE
+
+  if [[ -f "${LIB_DIR}/.install-info" ]]; then
+    printf '[verify] install marker: %s\n' "$(tr -d '\n' <"${LIB_DIR}/.install-info")"
+  else
+    # WARN: not an error because the copy may still be healthy (3f67447 kept the
+    # perms fix without a marker); only the provenance is unknown, so refresh is
+    # recommended rather than demanded.
+    printf '[verify] warning: no install marker; copy predates 0.1.5, rerun install.sh to refresh\n'
+  fi
+
+  if ((status == 0)); then
+    printf '[verify] ok: the host account can traverse the module dir and read every file\n'
+  else
+    printf '[verify] FAILED: the host account cannot read the installed copy\n' >&2
+  fi
+  return "${status}"
 }
 
 # A host-native registration (opencode.json plugin array / v2 plugins entry)
@@ -150,6 +224,9 @@ main() {
   case "${1:-}" in
     -h | --help)
       usage
+      ;;
+    --verify)
+      verify_installed
       ;;
     --uninstall)
       uninstall_plugin

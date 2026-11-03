@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -39,6 +39,19 @@ function install(config, args = []) {
   });
 }
 
+// --verify is expected to fail closed, so the tests need the exit status and
+// both streams instead of execFileSync's throw-on-nonzero behaviour.
+function runInstaller(config, args = []) {
+  return spawnSync("bash", [join(root, "install.sh"), ...args], {
+    encoding: "utf8",
+    env: { ...process.env, OPENCODE_CONFIG_DIR: config },
+  });
+}
+
+function packageVersion() {
+  return JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
+}
+
 test("copies the entry and every dist module into the config dir", (t) => {
   const box = sandbox();
   t.after(() => box.cleanup());
@@ -67,13 +80,85 @@ test("installed artifacts are traversable and readable by other accounts", (t) =
 
   assert.equal(statSync(box.lib).mode & 0o777, 0o755, "module dir must stay traversable");
 
-  const readable = [box.entry, join(box.lib, "package.json")];
+  const readable = [box.entry, join(box.lib, "package.json"), join(box.lib, ".install-info")];
   for (const module of readdirSync(join(root, "dist")).filter((name) => name.endsWith(".js"))) {
     readable.push(join(box.lib, module));
   }
   for (const file of readable) {
     assert.equal(statSync(file).mode & 0o777, 0o644, `${file} must stay world-readable`);
   }
+});
+
+test("install writes a readable marker with the shipped version", (t) => {
+  const box = sandbox();
+  t.after(() => box.cleanup());
+
+  install(box.config);
+
+  const markerPath = join(box.lib, ".install-info");
+  assert.equal(statSync(markerPath).mode & 0o777, 0o644, "marker stays world-readable");
+  const marker = JSON.parse(readFileSync(markerPath, "utf8"));
+  assert.equal(marker.name, pluginName);
+  assert.equal(marker.version, packageVersion());
+  assert.match(marker.installedAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+});
+
+test("--verify accepts a fresh install and reports the marker", (t) => {
+  const box = sandbox();
+  t.after(() => box.cleanup());
+  install(box.config);
+
+  const result = runInstaller(box.config, ["--verify"]);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /current account:/);
+  assert.match(result.stdout, /install marker: .*"version":"/);
+  assert.ok(result.stdout.includes(packageVersion()), "marker version is reported");
+  assert.match(result.stdout, /\[verify] ok:/);
+});
+
+test("--verify fails closed when the module dir is not traversable", (t) => {
+  const box = sandbox();
+  t.after(() => box.cleanup());
+  install(box.config);
+  chmodSync(box.lib, 0o700);
+
+  const result = runInstaller(box.config, ["--verify"]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /not traversable by other users/);
+  assert.match(result.stderr, /\[verify] FAILED:/);
+});
+
+test("--verify reports a missing install instead of guessing", (t) => {
+  const box = sandbox();
+  t.after(() => box.cleanup());
+
+  const result = runInstaller(box.config, ["--verify"]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /not installed under/);
+  assert.equal(existsSync(box.entry), false, "verify never installs anything");
+});
+
+test("--verify is read-only", (t) => {
+  const box = sandbox();
+  t.after(() => box.cleanup());
+  install(box.config);
+
+  const before = {
+    files: readdirSync(box.lib).sort(),
+    libMtime: statSync(box.lib).mtimeMs,
+    entryMtime: statSync(box.entry).mtimeMs,
+  };
+  runInstaller(box.config, ["--verify"]);
+  const after = {
+    files: readdirSync(box.lib).sort(),
+    libMtime: statSync(box.lib).mtimeMs,
+    entryMtime: statSync(box.entry).mtimeMs,
+  };
+
+  assert.deepEqual(after, before);
 });
 
 test("a plugin dir the installer cannot write fails with the real reason", (t) => {
