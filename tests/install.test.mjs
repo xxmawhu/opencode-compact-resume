@@ -1,7 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -45,6 +54,38 @@ test("copies the entry and every dist module into the config dir", (t) => {
   const manifest = JSON.parse(readFileSync(join(box.lib, "package.json"), "utf8"));
   assert.equal(manifest.type, "module");
   assert.match(readFileSync(box.entry, "utf8"), /hybrid\.server\(input\)/);
+});
+
+// Regression: the module dir used to keep mktemp's 0700 mode, so an OpenCode
+// process running as a different account could not traverse it. `import` then
+// failed before any hook existed and compaction silently produced no reminder.
+test("installed artifacts are traversable and readable by other accounts", (t) => {
+  const box = sandbox();
+  t.after(() => box.cleanup());
+
+  install(box.config);
+
+  assert.equal(statSync(box.lib).mode & 0o777, 0o755, "module dir must stay traversable");
+
+  const readable = [box.entry, join(box.lib, "package.json")];
+  for (const module of readdirSync(join(root, "dist")).filter((name) => name.endsWith(".js"))) {
+    readable.push(join(box.lib, module));
+  }
+  for (const file of readable) {
+    assert.equal(statSync(file).mode & 0o777, 0o644, `${file} must stay world-readable`);
+  }
+});
+
+test("a plugin dir the installer cannot write fails with the real reason", (t) => {
+  const box = sandbox();
+  mkdirSync(join(box.config, "plugin"), { recursive: true });
+  chmodSync(join(box.config, "plugin"), 0o555);
+  t.after(() => {
+    chmodSync(join(box.config, "plugin"), 0o755);
+    box.cleanup();
+  });
+
+  assert.throws(() => install(box.config), /cannot write .*plugin/);
 });
 
 test("reinstalling replaces the previous copy and leaves no staging dirs", (t) => {

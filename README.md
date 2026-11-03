@@ -51,6 +51,8 @@ OPENCODE_CONFIG_DIR=/path/to/opencode bash install.sh
 
 更新：`git pull && bash install.sh`；卸载：`bash install.sh --uninstall`。脚本只复制文件，重复执行覆盖旧副本。`dist/` 随后续提交更新；改动源码后先 `npm ci && npm run build` 再提交。
 
+安装产物固定为目录 `0755`、文件 `0644`。OpenCode 可能以另一个账号运行（运行账号 ≠ 执行 `install.sh` 的账号），目录不可穿越时 `import` 会在插件加载前失败，压缩后就不会有注入且没有插件日志。脚本在安装末尾校验这两项，不满足即报错退出。
+
 若曾用下面的宿主原生方式注册过本插件，先删掉 `opencode.json` 里的条目再运行 `install.sh`，否则同一次压缩会注入两条提醒。安装脚本发现残留注册会打印 warning。
 
 ### 备选：宿主原生安装
@@ -151,7 +153,7 @@ OpenCode v1 在压缩后追加一个通用的合成“继续”回合。若该�
 
 ## 排障
 
-- **压缩后没有提醒**：确认未设置 `OPENCODE_COMPACT_RESUME_DISABLED`、会话不是子会话、插件入口出现在 `opencode debug info` 的 `plugins:` 列表。
+- **压缩后没有提醒**：确认未设置 `OPENCODE_COMPACT_RESUME_DISABLED`、会话不是子会话、插件入口出现在 `opencode debug info` 的 `plugins:` 列表。再检查 `ls -ld <config>/plugin/opencode-compact-resume`：应为 `drwxr-xr-x`；若为 `drwx------`，说明是旧版安装器留下的副本，运行账号读不到模块目录，重新执行 `install.sh` 即可。该故障没有插件日志，因为 `import` 在钩子注册前就失败了。
 - **v2 安装失败**：说明符可能以 `name@` 开头。v2 按最后一个 `@` 切分后会尝试从 registry 安装；改用裸 `git+https://…`。
 - **两个宿主都装不上**：克隆需要仓库可访问；仓库自带 `dist/`，宿主安装不再需要构建依赖。查看宿主日志中的 `Failed to install plugin`。
 - **提醒文案没生效**：v1 需使用元组选项或环境变量；v2 在插件加载时读取 `options` 字段。

@@ -55,11 +55,23 @@ install_plugin() {
 
   mkdir -p -- "${PLUGIN_DIR}" 2>/dev/null ||
     die "cannot create ${PLUGIN_DIR} (read-only or no permission)"
+  # Fail with the real reason instead of letting mktemp abort under set -e: the
+  # plugin dir is often owned by the desktop user while OpenCode runs as another
+  # account that can only read the config tree.
+  if [[ ! -w "${PLUGIN_DIR}" ]]; then
+    die "cannot write ${PLUGIN_DIR} (owned by $(stat -c '%U' -- "${PLUGIN_DIR}"), running as $(id -un)); run install.sh as the owner of the OpenCode config dir"
+  fi
 
   local staging tmp_entry
   staging="$(mktemp -d "${PLUGIN_DIR}/.${PLUGIN_NAME}.stage.XXXXXX")"
   # shellcheck disable=SC2064 # expand the staging path now, not at exit time
   trap "rm -rf -- '${staging}'" EXIT
+
+  # mktemp -d creates 0700 (plus any inherited setgid), and `mv` keeps that
+  # mode. The host may run as a different account than the installer, so the
+  # module dir must stay traversable or `import` fails with EACCES and the
+  # plugin never loads (no hook, no injection, no log).
+  chmod 0755 -- "${staging}"
 
   cp -- "${DIST_DIR}"/*.js "${staging}/"
   cat >"${staging}/package.json" <<EOF
@@ -74,6 +86,7 @@ EOF
   # copied library while a session is loading the plugin.
   rm -rf -- "${LIB_DIR}"
   mv -- "${staging}" "${LIB_DIR}"
+  chmod 0755 -- "${LIB_DIR}"
   trap - EXIT
 
   # Write the entry through a temp file in the same directory, then rename.
@@ -83,11 +96,32 @@ EOF
   mv -f -- "${tmp_entry}" "${ENTRY_FILE}"
 
   local modules=("${LIB_DIR}"/*.js)
+  verify_permissions
+
   info "installed ${ENTRY_FILE}"
   info "installed ${LIB_DIR}/ (${#modules[@]} modules)"
 
   warn_duplicate_registration
   info "restart OpenCode to load the plugin"
+}
+
+# OpenCode loads plugins from its own process account, which is not necessarily
+# the account that ran install.sh. The loader needs traverse on the module dir
+# and read on every file; anything narrower makes `import` fail before any hook
+# exists, so the failure is silent unless verified here.
+verify_permissions() {
+  local path mode
+  for path in "${LIB_DIR}" "${LIB_DIR}"/*.js "${LIB_DIR}/package.json" "${ENTRY_FILE}"; do
+    [[ -e "${path}" ]] || die "missing installed path: ${path}"
+    mode="$(stat -c '%a' -- "${path}")"
+    if [[ -d "${path}" ]]; then
+      (( (8#${mode} & 8#005) == 8#005 )) ||
+        die "installed dir is not traversable by other users: ${path} (mode ${mode})"
+    else
+      (( (8#${mode} & 8#004) == 8#004 )) ||
+        die "installed file is not readable by other users: ${path} (mode ${mode})"
+    fi
+  done
 }
 
 # A host-native registration (opencode.json plugin array / v2 plugins entry)
