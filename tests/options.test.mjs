@@ -4,15 +4,34 @@ import assert from "node:assert/strict";
 import { DEFAULT_TEXT } from "../dist/constants.js";
 import { normalizeOptions } from "../dist/options.js";
 
-test("the default reminder names every task source it asks the agent to check", () => {
+test("the default reminder names every task source, including the compaction summary", () => {
   // Regression guard for the evidence-driven prompt: compaction drops the rules
   // and the task locations, so the reminder must name them explicitly.
   for (const source of ["memory/root.md", "AGENTS.md", "memory/long-plan.md", "plan/", "issues/"]) {
     assert.ok(DEFAULT_TEXT.includes(source), `default text must mention ${source}`);
   }
-  // Nothing pending must stay quiet instead of producing an idle status report.
-  assert.match(DEFAULT_TEXT, /保持静默/);
+  // After compaction the next step may exist only as summary prose, so the
+  // summary itself must be named as a task source (issue 3fcd2bef).
+  for (const marker of ["压缩摘要", "待办", "Next Move", "下一步", "Active"]) {
+    assert.ok(DEFAULT_TEXT.includes(marker), `default text must mention ${marker}`);
+  }
+});
+
+test("the default reminder starts execution before producing a plan or a report", () => {
+  // A context break drops the running tool loop; "continue" without an explicit
+  // first action was satisfied by reporting instead of executing.
+  assert.match(DEFAULT_TEXT, /立即执行第一项/);
+  assert.match(DEFAULT_TEXT, /先调用工具/);
+  assert.match(DEFAULT_TEXT, /不要先输出计划、盘点或请示/);
+  assert.match(DEFAULT_TEXT, /直接采用/);
   assert.doesNotMatch(DEFAULT_TEXT, /没有任务/);
+});
+
+test("the default reminder only goes silent when every source is empty", () => {
+  // The old "nothing pending" branch was read as "when unsure, end the turn".
+  assert.match(DEFAULT_TEXT, /全部为空才保持静默/);
+  assert.ok(DEFAULT_TEXT.indexOf("全部为空") < DEFAULT_TEXT.indexOf("保持静默"));
+  assert.doesNotMatch(DEFAULT_TEXT, /有则继续执行/);
 });
 
 test("defaults with an empty environment", () => {
