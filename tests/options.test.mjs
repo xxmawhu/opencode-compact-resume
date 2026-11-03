@@ -4,6 +4,17 @@ import assert from "node:assert/strict";
 import { DEFAULT_TEXT } from "../dist/constants.js";
 import { normalizeOptions } from "../dist/options.js";
 
+test("the default reminder names every task source it asks the agent to check", () => {
+  // Regression guard for the evidence-driven prompt: compaction drops the rules
+  // and the task locations, so the reminder must name them explicitly.
+  for (const source of ["memory/root.md", "AGENTS.md", "memory/long-plan.md", "plan/", "issues/"]) {
+    assert.ok(DEFAULT_TEXT.includes(source), `default text must mention ${source}`);
+  }
+  // Nothing pending must stay quiet instead of producing an idle status report.
+  assert.match(DEFAULT_TEXT, /保持静默/);
+  assert.doesNotMatch(DEFAULT_TEXT, /没有任务/);
+});
+
 test("defaults with an empty environment", () => {
   const config = normalizeOptions(undefined, {});
   assert.equal(config.enabled, true);

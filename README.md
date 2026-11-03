@@ -21,6 +21,13 @@
 - **失败不影响会话** —— 插件钩子从不向宿主抛错。
 - **无运行时依赖** —— 只发布纯 ESM，只使用宿主 API。
 
+## 维护原则
+
+1. **提示词不足时按证据改提示词。** 压缩后的提醒是本插件唯一的功能输出。若观察到压缩后会话没有继续任务、找错位置或输出空闲汇报，先固定证据（会话记录、插件日志、宿主规则），再修改 `DEFAULT_TEXT` 或文档，并在提交信息里写明证据。禁止凭感觉改文案。
+2. **运行故障时修逻辑 bug。** 注入失败、重复注入、加载失败等故障先定位逻辑（宿主契约、并发、重试、路径），补复现用例后修复。不得用改提示词、加日志或放宽容错掩盖逻辑缺陷。
+
+当前默认文案的依据：压缩只保留摘要，规则本身会丢失，故先要求重新读取 `memory/root.md` 与 `AGENTS.md`；未完成项有确定位置（`memory/long-plan.md` 的 `- [ ]`、`plan/`、`issues/`），比旧文案的「memory 系统里的待做项」可执行；旧文案未说明无待办时怎么做，容易触发空闲汇报。
+
 ## 安装
 
 标准安装方式是把仓库里已构建好的插件文件复制到 OpenCode 配置目录。不构建、不联网、不改配置文件。
@@ -42,7 +49,7 @@ bash install.sh
 OPENCODE_CONFIG_DIR=/path/to/opencode bash install.sh
 ```
 
-更新：`git pull && bash install.sh`；卸载：`bash install.sh --uninstall`。脚本只复制文件，重复执行覆盖旧副本。`dist/` 随后续提交更新；改动源码后需先 `npm ci && npm run build` 再提交。
+更新：`git pull && bash install.sh`；卸载：`bash install.sh --uninstall`。脚本只复制文件，重复执行覆盖旧副本。`dist/` 随后续提交更新；改动源码后先 `npm ci && npm run build` 再提交。
 
 若曾用下面的宿主原生方式注册过本插件，先删掉 `opencode.json` 里的条目再运行 `install.sh`，否则同一次压缩会注入两条提醒。安装脚本发现残留注册会打印 warning。
 
@@ -119,7 +126,7 @@ v1 的对象入口（`server()`）需要 OpenCode `1.18.29` 及以上。更旧�
 默认文案：
 
 ```text
-请检查是否未完成的任务，如果有则继续工作。所谓的任务包含：issues,plan的待执行规划以及上下文和memory系统里的待做项。
+压缩完成，细节可能已丢失。请先重新读取 memory/root.md（最高准则）与 AGENTS.md（规则），再检查未完成任务：memory/long-plan.md 的未勾选项、plan/ 的待执行项、issues/ 的未处理项，以及当前上下文里的待办。有则继续执行；没有则保持静默，不要输出空闲汇报。
 ```
 
 ## 环境变量
@@ -146,7 +153,7 @@ OpenCode v1 在压缩后追加一个通用的合成“继续”回合。若该�
 
 - **压缩后没有提醒**：确认未设置 `OPENCODE_COMPACT_RESUME_DISABLED`、会话不是子会话、插件入口出现在 `opencode debug info` 的 `plugins:` 列表。
 - **v2 安装失败**：说明符可能以 `name@` 开头。v2 按最后一个 `@` 切分后会尝试从 registry 安装；改用裸 `git+https://…`。
-- **两个宿主都装不上**：克隆需要仓库匿名可访问，安装时还需要取到构建依赖；查看宿主日志中的 `Failed to install plugin`。
+- **两个宿主都装不上**：克隆需要仓库可访问；仓库自带 `dist/`，宿主安装不再需要构建依赖。查看宿主日志中的 `Failed to install plugin`。
 - **提醒文案没生效**：v1 需使用元组选项或环境变量；v2 在插件加载时读取 `options` 字段。
 - **同一会话收到两条提醒**：插件被注册了两次，或宿主重复派发同一压缩事件；确认插件只注册一次。
 - **日志里有投递错误**：warning 与 error 默认就写日志，带上会话 id、尝试次数与完整错误对象（v1 的真实原因常在 `data.message`，`message` 只剩 `UnknownError`）；`verbose` 才记录 info/debug。
@@ -155,9 +162,9 @@ OpenCode v1 在压缩后追加一个通用的合成“继续”回合。若该�
 ## 开发
 
 ```sh
-NODE_ENV=development npm ci    # 安装开发依赖并构建 dist/
+NODE_ENV=development npm ci    # 安装开发依赖（本机默认 NODE_ENV=production，需显式指定）
 npm run check                  # lint + 类型检查 + 测试（含 install.sh 用例）
-npm run build                  # 只重建 dist/
+npm run build                  # 重建 dist/
 ```
 
 `dist/` 入库供 `install.sh` 直接复制；改完源码先构建再提交，避免仓库内副本过期。
