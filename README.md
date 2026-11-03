@@ -65,6 +65,12 @@ bash install.sh --verify
 
 若曾用下面的宿主原生方式注册过本插件，先删掉 `opencode.json` 里的条目再运行 `install.sh`，否则同一次压缩会注入两条提醒。安装脚本发现残留注册会打印 warning。
 
+### 自动部署（repo-keeper 拉取侧）
+
+由 repo-keeper 拉取的部署副本，例如 `regular_task/opencode-compact-resume`，靠 `post-merge` stage 在更新后执行 `install.sh`。
+repo-keeper 按 `stages: [...]` 安装 git hook，该 stage 必须写成单行数组。
+多行序列写法目前不会被识别（已报 repo-keeper issue `921be6a4`）。
+
 ### 备选：宿主原生安装
 
 #### OpenCode v2

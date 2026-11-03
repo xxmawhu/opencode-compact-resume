@@ -23,3 +23,14 @@ repos:
         pass_filenames: false
         always_run: true
         stages: [pre-commit]
+      # post-merge 自动安装：maxx 侧部署副本（regular_task）由 repo-keeper 拉取后
+      # 触发 install.sh，把插件同步到 ~/.config/opencode；否则副本长期停留在旧版本。
+      # ALWAYS_RUN 强制：post-merge stage 不接收文件列表，缺 always_run 会被
+      # pre-commit 以 "(no files to check)" 静默跳过。
+      - id: compact-resume-post-merge-install
+        name: install opencode-compact-resume into the OpenCode config
+        entry: bash install.sh
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [post-merge]
