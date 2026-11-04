@@ -10,8 +10,8 @@ issues/
 plan/
 end_task/
 data/
+# memory/ 整体不入库（用户 2026-11-04 指令：不得把 memory 上传到 git）
 memory/
-!memory/.gitkeep
 tmp-issues/
 /.var/
 
