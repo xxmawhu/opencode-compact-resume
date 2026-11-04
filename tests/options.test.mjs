@@ -34,15 +34,27 @@ test("the default reminder only goes silent when every source is empty", () => {
   assert.doesNotMatch(DEFAULT_TEXT, /有则继续执行/);
 });
 
-test("the default reminder treats conditional next moves as pending work", () => {
+test("the default reminder treats every pending-work label the same", () => {
   // Issue d3cfbe2a: the summary wrote the next move as "if the user asks for
   // it", and the restore step treated the parenthesis as an external blocker.
-  assert.match(DEFAULT_TEXT, /Next Move 一律视为待办/);
+  assert.match(DEFAULT_TEXT, /一律视为待办/);
+  assert.match(DEFAULT_TEXT, /不因措辞/);
+  assert.match(DEFAULT_TEXT, /计划/);
+  assert.match(DEFAULT_TEXT, /TODO/);
   assert.match(DEFAULT_TEXT, /自设条件不构成跳过理由/);
   assert.match(DEFAULT_TEXT, /默认执行并说明理由/);
-  assert.match(DEFAULT_TEXT, /BLOCKED:/);
-  assert.match(DEFAULT_TEXT, /解锁判据/);
   assert.doesNotMatch(DEFAULT_TEXT, /若用户要求\s*即\s*跳过/);
+});
+
+test("the default reminder explains real external dependencies instead of dropping them", () => {
+  // A blocker is allowed, but it must be verbalised: reason, unlock criterion,
+  // required action, and the item stays visible.
+  assert.match(DEFAULT_TEXT, /BLOCKED:/);
+  assert.match(DEFAULT_TEXT, /阻塞原因/);
+  assert.match(DEFAULT_TEXT, /解锁判据/);
+  assert.match(DEFAULT_TEXT, /所需动作/);
+  assert.match(DEFAULT_TEXT, /仍须回显该待办/);
+  assert.match(DEFAULT_TEXT, /禁止静默丢弃任务/);
 });
 
 test("the default reminder checks summary claims against the real directories", () => {
@@ -55,7 +67,7 @@ test("the default reminder checks summary claims against the real directories", 
   // Pending instructions must rank before the work-state summary.
   assert.ok(
     DEFAULT_TEXT.indexOf("Pending user instructions") <
-      DEFAULT_TEXT.indexOf("「待办 / Next Move / 下一步 / Active」"),
+      DEFAULT_TEXT.indexOf("「待办 / Next Move / 下一步 / Active / 计划 / TODO」"),
   );
   // A missing section is stated, never read as "nothing pending".
   assert.match(DEFAULT_TEXT, /明确说明该线索缺失/);
