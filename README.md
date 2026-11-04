@@ -29,7 +29,9 @@
 当前默认文案的依据：
 
 - 压缩只保留摘要，规则会丢失，故先要求重读 `memory/root.md` 与 `AGENTS.md`。
-- 未完成项有确定位置：`memory/long-plan.md`、`plan/`、`issues/`；摘要的 `Active` / `Next Move` 也是来源。
+- 未完成项有确定位置：`memory/long-plan.md`、`plan/`、`issues/`；摘要的 `Pending user instructions`、`Active` / `Next Move` 也是来源，其中已下达但未执行的用户指令优先。
+- 摘要可能把下一步写成「若用户要求」这类自设条件，恢复时会被误判为外部阻塞（issue `d3cfbe2a`），故规定 Next Move 一律视为待办，只有带解锁判据的 `BLOCKED:` 才算阻塞。
+- 摘要可能丢掉刚下达的指令并把非空目录断言为空（issue `e1cc5012`），故要求用 `ls -A plan/ issues/` 核对，声明「无待办」前逐条回显 Next Move 的处理结论。
 - 压缩后无运行中的工具循环，故要求先调用工具；静默只留给全部为空的分支。
 
 ## 安装
@@ -151,9 +153,11 @@ v1 的对象入口（`server()`）需要 OpenCode `1.18.29` 及以上。更旧�
 ```text
 压缩完成，细节可能已丢失。按顺序恢复执行：
 1. 读取 memory/root.md（最高准则）与 AGENTS.md（规则）。
-2. 找出待办：本次压缩摘要里的「待办 / Next Move / 下一步 / Active」段落，以及 memory/long-plan.md 的 - [ ] 项、plan/ 的待执行项、issues/ 的未处理项。
-3. 有待办就立即执行第一项：先调用工具，不要先输出计划、盘点或请示；存在默认推荐做法时直接采用，不要询问是否继续。
-4. 全部为空才保持静默，不输出空闲汇报。
+2. 找出待办，按优先级：摘要的「Pending user instructions」> 摘要的「待办 / Next Move / 下一步 / Active」> memory/long-plan.md 的 - [ ] 项 > plan/ 的待执行项 > issues/ 的未处理项。
+3. Next Move 一律视为待办，「若用户要求 / 视情况 / 待确认」等自设条件不构成跳过理由，默认执行并说明理由；只有显式 BLOCKED: 且写明解锁判据才算阻塞。
+4. 压缩摘要声称「目录为空 / 无待办」时用 ls -A plan/ issues/ 核对；与文件系统不一致以文件系统为准并把差异列为待办。摘要没有「Pending user instructions」时明确说明该线索缺失，不得据此断言无待办。
+5. 有待办就立即执行第一项：先调用工具，不要先输出计划、盘点或请示；存在默认推荐做法时直接采用，不要询问是否继续。
+6. 声明「无待办」前逐条回显每个 Next Move 项的处理结论（执行 / 阻塞原因 + 证据）；全部为空才保持静默，不输出空闲汇报。
 ```
 
 ## 环境变量

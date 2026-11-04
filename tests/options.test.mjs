@@ -34,6 +34,34 @@ test("the default reminder only goes silent when every source is empty", () => {
   assert.doesNotMatch(DEFAULT_TEXT, /有则继续执行/);
 });
 
+test("the default reminder treats conditional next moves as pending work", () => {
+  // Issue d3cfbe2a: the summary wrote the next move as "if the user asks for
+  // it", and the restore step treated the parenthesis as an external blocker.
+  assert.match(DEFAULT_TEXT, /Next Move 一律视为待办/);
+  assert.match(DEFAULT_TEXT, /自设条件不构成跳过理由/);
+  assert.match(DEFAULT_TEXT, /默认执行并说明理由/);
+  assert.match(DEFAULT_TEXT, /BLOCKED:/);
+  assert.match(DEFAULT_TEXT, /解锁判据/);
+  assert.doesNotMatch(DEFAULT_TEXT, /若用户要求\s*即\s*跳过/);
+});
+
+test("the default reminder checks summary claims against the real directories", () => {
+  // Issue e1cc5012: the summary dropped a just-issued instruction and still
+  // asserted "issues/ empty" while the file existed.
+  assert.match(DEFAULT_TEXT, /Pending user instructions/);
+  assert.match(DEFAULT_TEXT, /ls -A plan\/ issues\//);
+  assert.match(DEFAULT_TEXT, /以文件系统为准/);
+  assert.match(DEFAULT_TEXT, /逐条回显/);
+  // Pending instructions must rank before the work-state summary.
+  assert.ok(
+    DEFAULT_TEXT.indexOf("Pending user instructions") <
+      DEFAULT_TEXT.indexOf("「待办 / Next Move / 下一步 / Active」"),
+  );
+  // A missing section is stated, never read as "nothing pending".
+  assert.match(DEFAULT_TEXT, /明确说明该线索缺失/);
+  assert.match(DEFAULT_TEXT, /不得据此断言无待办/);
+});
+
 test("defaults with an empty environment", () => {
   const config = normalizeOptions(undefined, {});
   assert.equal(config.enabled, true);
