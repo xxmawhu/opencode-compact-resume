@@ -57,6 +57,36 @@ test("the default reminder explains real external dependencies instead of droppi
   assert.match(DEFAULT_TEXT, /禁止静默丢弃任务/);
 });
 
+test("the default reminder keeps requirement sections and verbatim context above the summary", () => {
+  // The summary is an index, not the source of truth: constraint sections and
+  // the conversation text that survives compaction must stay authoritative.
+  assert.match(DEFAULT_TEXT, /摘要只作线索/);
+  assert.match(DEFAULT_TEXT, /Requirements \/ Decisions \/ Constraints/);
+  assert.match(DEFAULT_TEXT, /原文/);
+  assert.match(DEFAULT_TEXT, /优先于摘要/);
+  assert.match(DEFAULT_TEXT, /以原文和当前事实为准/);
+  // The host tells the model not to describe the compaction, so the reminder
+  // must not open by framing the context as damaged.
+  assert.doesNotMatch(DEFAULT_TEXT, /细节可能已丢失/);
+});
+
+test("the default reminder verifies finished work before repeating it", () => {
+  // Resuming can replay an action that already completed during compaction.
+  assert.match(DEFAULT_TEXT, /先核实它是否已完成/);
+  assert.match(DEFAULT_TEXT, /已完成则跳过/);
+  assert.match(DEFAULT_TEXT, /不重复动作/);
+});
+
+test("the default reminder keeps recovery bookkeeping internal", () => {
+  // Enumerating pending items is a self-check; repeating it to the user is noise.
+  assert.match(DEFAULT_TEXT, /在内部逐条回显/);
+  assert.match(DEFAULT_TEXT, /不向用户复述摘要或恢复过程/);
+});
+
+test("the default reminder states the action a blocker needs from the user", () => {
+  assert.match(DEFAULT_TEXT, /需要用户提供信息或决策时写明需要用户做什么/);
+});
+
 test("the default reminder checks summary claims against the real directories", () => {
   // Issue e1cc5012: the summary dropped a just-issued instruction and still
   // asserted "issues/ empty" while the file existed.
