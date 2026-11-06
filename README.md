@@ -8,14 +8,15 @@
 
 ## 工作方式
 
-| 宿主        | 触发                            | 投递                                       |
-| ----------- | ------------------------------- | ------------------------------------------ |
-| OpenCode v1 | `session.compacted` 事件        | `client.session.promptAsync`（缺失时回退） |
-| OpenCode v2 | `session.compaction.ended` 事件 | `ctx.session.synthetic`（缺失时回退）      |
+| 宿主        | 触发                                          | 投递                                       |
+| ----------- | --------------------------------------------- | ------------------------------------------ |
+| OpenCode v1 | `session.compacted` 挂起，`session.idle` 投递 | `client.session.promptAsync`（缺失时回退） |
+| OpenCode v2 | `session.compaction.ended` 事件               | `ctx.session.synthetic`（缺失时回退）      |
 
 两个入口共用同一套注入内核：
 
 - **每次压缩注入一次** —— 每个压缩完成事件发出一条提醒；同一次事件的并发重复调用被丢弃。
+- **v1 延迟到空闲投递** —— `session.compacted` 在压缩 run 内发布，此时 `promptAsync` 只落库、不排回合（opencode#46842）；v1 先挂起，收到 `session.idle` 或 `session.status(idle)` 后再投递一次。
 - **投递被拒重试一次** —— 拒绝后等 1 秒重试一次；重试和最终失败都写入默认日志（warn/error，无需开启 `verbose`），失败后由下一次压缩事件重新尝试。
 - **跳过子会话** —— 子代理由父会话编排；需要时用 `includeChildSessions` 打开。
 - **失败不影响会话** —— 插件钩子从不向宿主抛错。
@@ -199,7 +200,7 @@ OpenCode v1 在压缩后追加一个通用的合成“继续”回合。若该�
 - **提醒文案没生效**：v1 需使用元组选项或环境变量；v2 在插件加载时读取 `options` 字段。
 - **同一会话收到两条提醒**：插件被注册了两次，或宿主重复派发同一压缩事件；确认插件只注册一次。
 - **日志里有投递错误**：warning 与 error 默认就写日志，带上会话 id、尝试次数与完整错误对象（v1 的真实原因常在 `data.message`，`message` 只剩 `UnknownError`）；`verbose` 才记录 info/debug。
-- **v1 压缩后仍未续跑**：`prompt_async` 可能返回 204 却不调度回合，客户端无法检测；检查是否同时运行多个 OpenCode 实例抢答同一会话，并保留宿主的自动续接作为兜底。
+- **v1 压缩后仍未续跑**：确认插件版本包含空闲投递修复（`session.compacted` 后等到 `session.idle` 再 `promptAsync`）；旧版在压缩 run 内投递会被 v1 丢弃（opencode#46842）。仍无日志时检查是否同时运行多个 OpenCode 实例抢答同一会话。
 
 ## 开发
 

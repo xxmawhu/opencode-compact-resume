@@ -31,22 +31,88 @@ function client(overrides = {}) {
   return { hooks: createV1Hooks({ client: { ...api, app } }, config()), calls, api, app };
 }
 
-const compactionEvent = {
-  event: { type: "session.compacted", properties: { sessionID: "s1" } },
-};
+const compacted = (sessionID = "s1") => ({
+  event: { type: "session.compacted", properties: { sessionID } },
+});
+const idle = (sessionID = "s1") => ({
+  event: { type: "session.idle", properties: { sessionID } },
+});
+const statusIdle = (sessionID = "s1") => ({
+  event: {
+    type: "session.status",
+    properties: { sessionID, status: { type: "idle" } },
+  },
+});
+const statusBusy = (sessionID = "s1") => ({
+  event: {
+    type: "session.status",
+    properties: { sessionID, status: { type: "busy" } },
+  },
+});
 
-test("ignores events other than session.compacted", async () => {
+test("ignores events other than compaction and idle", async () => {
   const { hooks, calls } = client();
-  await hooks.event({ event: { type: "session.idle", properties: { sessionID: "s1" } } });
+  await hooks.event({ event: { type: "message.updated", properties: { sessionID: "s1" } } });
   assert.equal(calls.promptAsync.length, 0);
 });
 
-test("injects the reminder through promptAsync", async () => {
+test("compaction defers the reminder until the session is idle", async () => {
   const { hooks, calls } = client();
-  await hooks.event(compactionEvent);
+  await hooks.event(compacted());
+  assert.equal(calls.promptAsync.length, 0);
+
+  await hooks.event(idle());
   assert.deepEqual(calls.promptAsync, [
     { path: { id: "s1" }, body: { parts: [{ type: "text", text: "resume" }] } },
   ]);
+});
+
+test("session.status idle also releases a pending reminder", async () => {
+  const { hooks, calls } = client();
+  await hooks.event(compacted());
+  await hooks.event(statusIdle());
+  assert.equal(calls.promptAsync.length, 1);
+});
+
+test("a busy status does not release the reminder", async () => {
+  const { hooks, calls } = client();
+  await hooks.event(compacted());
+  await hooks.event(statusBusy());
+  assert.equal(calls.promptAsync.length, 0);
+
+  await hooks.event(idle());
+  assert.equal(calls.promptAsync.length, 1);
+});
+
+test("one idle transition delivers exactly once despite status+idle events", async () => {
+  const { hooks, calls } = client();
+  await hooks.event(compacted());
+  await hooks.event(statusIdle());
+  await hooks.event(idle());
+  assert.equal(calls.promptAsync.length, 1);
+});
+
+test("idle without a pending compaction is ignored", async () => {
+  const { hooks, calls } = client();
+  await hooks.event(idle());
+  assert.equal(calls.promptAsync.length, 0);
+});
+
+test("two compactions before idle coalesce into one reminder", async () => {
+  const { hooks, calls } = client();
+  await hooks.event(compacted());
+  await hooks.event(compacted());
+  await hooks.event(idle());
+  assert.equal(calls.promptAsync.length, 1);
+});
+
+test("a later compaction delivers again", async () => {
+  const { hooks, calls } = client();
+  await hooks.event(compacted());
+  await hooks.event(idle());
+  await hooks.event(compacted());
+  await hooks.event(idle());
+  assert.equal(calls.promptAsync.length, 2);
 });
 
 test("falls back to session.prompt on older clients", async () => {
@@ -65,7 +131,9 @@ test("falls back to session.prompt on older clients", async () => {
     config(),
   );
 
-  await hooks.event(compactionEvent);
+  await hooks.event(compacted());
+  assert.equal(calls.prompt.length, 0);
+  await hooks.event(idle());
   assert.equal(calls.prompt.length, 1);
   assert.equal(calls.prompt[0].body.parts[0].text, "resume");
 });
@@ -91,15 +159,37 @@ test("a transport failure is logged, not thrown", async () => {
     config(),
   );
 
-  await assert.doesNotReject(() => hooks.event(compactionEvent));
+  await hooks.event(compacted());
+  await assert.doesNotReject(() => hooks.event(idle()));
   assert.ok(logs.some((entry) => entry.level === "error"));
 });
 
-test("child sessions are skipped", async () => {
+test("child sessions are skipped at delivery", async () => {
   const { hooks, calls } = client({
     get: async () => ({ data: { id: "child", parentID: "parent" } }),
   });
-  await hooks.event(compactionEvent);
+  await hooks.event(compacted());
+  await hooks.event(idle());
+  assert.equal(calls.promptAsync.length, 0);
+});
+
+test("disabled plugin schedules nothing", async () => {
+  const calls = { promptAsync: [] };
+  const hooks = createV1Hooks(
+    {
+      client: {
+        session: {
+          promptAsync: async (input) => {
+            calls.promptAsync.push(input);
+          },
+        },
+      },
+    },
+    config({ enabled: false }),
+  );
+
+  await hooks.event(compacted());
+  await hooks.event(idle());
   assert.equal(calls.promptAsync.length, 0);
 });
 
@@ -185,7 +275,9 @@ test("server() accepts v1 tuple options", async () => {
     { text: "custom reminder" },
   );
 
-  await hooks.event(compactionEvent);
+  await hooks.event(compacted());
+  assert.equal(calls.length, 0);
+  await hooks.event(idle());
   assert.equal(calls.length, 1);
   assert.equal(calls[0].body.parts[0].text, "custom reminder");
 });

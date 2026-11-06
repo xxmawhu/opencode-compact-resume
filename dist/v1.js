@@ -4,6 +4,10 @@ import { createAppLogger } from "./log.js";
 import { normalizeOptions } from "./options.js";
 /** Post-compaction event emitted by OpenCode v1. */
 export const V1_SESSION_COMPACTED = "session.compacted";
+/** v1 emits this when the run for a session reaches idle. */
+export const V1_SESSION_IDLE = "session.idle";
+/** v1 also reports every status transition, including idle, as session.status. */
+export const V1_SESSION_STATUS = "session.status";
 /**
  * v1 entrypoint hooks.
  *
@@ -18,11 +22,41 @@ export function createV1Hooks(input, config) {
         isChildSession: (sessionID) => isChildSession(input.client, sessionID),
         log: logger,
     });
+    /**
+     * Compaction is announced while its run is still `Running`. On v1,
+     * `promptAsync` in that state persists the reminder as a user message but
+     * never schedules a turn (opencode#46842), so the reminder would sit in the
+     * transcript until the user writes again. Record the session here and deliver
+     * only after the host reports it idle.
+     */
+    const pendingResume = new Set();
+    const isIdleEvent = (event) => event.type === V1_SESSION_IDLE ||
+        (event.type === V1_SESSION_STATUS && event.properties?.status?.type === "idle");
     return {
         async event({ event }) {
-            if (event?.type !== V1_SESSION_COMPACTED)
+            if (!event)
                 return;
-            await injector.handle(event.properties?.sessionID, "v1.session.compacted");
+            if (event.type === V1_SESSION_COMPACTED) {
+                const sessionID = event.properties?.sessionID;
+                if (!config.enabled || !sessionID)
+                    return;
+                if (pendingResume.has(sessionID)) {
+                    logger("debug", "compaction already pending; coalescing reminder", { sessionID });
+                    return;
+                }
+                pendingResume.add(sessionID);
+                logger("debug", "compaction detected; reminder deferred until idle", { sessionID });
+                return;
+            }
+            if (!isIdleEvent(event))
+                return;
+            const sessionID = event.properties?.sessionID;
+            if (!sessionID || !pendingResume.has(sessionID))
+                return;
+            // The host publishes session.status(idle) and session.idle for the same
+            // transition, so deleting before delivery keeps it to exactly one send.
+            pendingResume.delete(sessionID);
+            await injector.handle(sessionID, "v1.session.idle");
         },
         async "experimental.compaction.autocontinue"(hookInput, output) {
             if (!config.enabled || !config.suppressBuiltinAutoContinue)

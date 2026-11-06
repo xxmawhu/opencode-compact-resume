@@ -2,6 +2,10 @@ import { type AppLoggerLike } from "./log.js";
 import { type RawOptions, type ResumeConfig } from "./options.js";
 /** Post-compaction event emitted by OpenCode v1. */
 export declare const V1_SESSION_COMPACTED = "session.compacted";
+/** v1 emits this when the run for a session reaches idle. */
+export declare const V1_SESSION_IDLE = "session.idle";
+/** v1 also reports every status transition, including idle, as session.status. */
+export declare const V1_SESSION_STATUS = "session.status";
 export interface V1TextPart {
     type: "text";
     text: string;
@@ -44,10 +48,14 @@ export interface V1PluginInput {
     client: V1Client;
     directory?: string;
 }
+export interface V1SessionStatus {
+    type?: string;
+}
 export interface V1Event {
     type?: string;
     properties?: {
         sessionID?: string;
+        status?: V1SessionStatus;
     };
 }
 export interface V1Hooks {
