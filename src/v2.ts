@@ -54,6 +54,26 @@ export function setupV2(ctx: V2Context): Promise<() => void> {
   if (!config.enabled) return Promise.resolve(() => {});
 
   const logger: InjectorLog = createConsoleLogger(config.verbose);
+
+  // The v2 contract is structural: older builds and v1-shaped inputs may miss
+  // any of these members. Detect a missing capability before subscribing so the
+  // plugin stays inert with one diagnostic instead of failing mid-setup.
+  if (!hasEventSubscription(ctx)) {
+    // [log-review] warning because: (1) the host exposes no event stream, (2)
+    // the reminder can never fire, (3) scope: one line per load.
+    logger("warn", "v2 context has no event.subscribe(); resume inactive");
+    return Promise.resolve(() => {});
+  }
+  if (!hasSendTransport(ctx)) {
+    // [log-review] warning because: (1) neither send transport exists, (2) the
+    // reminder could never be delivered, (3) scope: one line per load.
+    logger(
+      "warn",
+      "v2 context exposes neither session.synthetic() nor session.prompt(); resume inactive",
+    );
+    return Promise.resolve(() => {});
+  }
+
   const injector = createResumeInjector(config, {
     send: (sessionID, text) => sendV2(ctx, sessionID, text),
     isChildSession: (sessionID) => isChildSession(ctx, sessionID),
@@ -66,6 +86,20 @@ export function setupV2(ctx: V2Context): Promise<() => void> {
   return Promise.resolve(() => {
     controller.abort();
   });
+}
+
+function hasEventSubscription(ctx: V2Context): boolean {
+  const candidate = ctx as { event?: { subscribe?: unknown } } | null | undefined;
+  return typeof candidate?.event?.subscribe === "function";
+}
+
+function hasSendTransport(ctx: V2Context): boolean {
+  const candidate = ctx as
+    { session?: { synthetic?: unknown; prompt?: unknown } } | null | undefined;
+  return (
+    typeof candidate?.session?.synthetic === "function" ||
+    typeof candidate?.session?.prompt === "function"
+  );
 }
 
 async function consumeCompactionEvents(

@@ -159,34 +159,53 @@ test("falls back to session.prompt when synthetic is unavailable", async () => {
   }
 });
 
-test("missing transports are logged and do not crash the subscription", async () => {
+test("disabled plugin does not subscribe", async () => {
+  const { ctx, calls } = makeContext({ options: { enabled: false } });
+  const cleanup = await setupV2(ctx);
+  cleanup();
+  assert.equal(calls.subscribe.length, 0);
+});
+
+test("context without event.subscribe stays inert with one warning", async () => {
   const errors = [];
   const original = console.error;
   console.error = (...args) => {
     errors.push(args.join(" "));
   };
   try {
-    const { ctx, calls } = makeContext({
-      options: {},
-      withSynthetic: false,
-      events: [compaction("s1")],
-    });
-    const cleanup = await setupV2(ctx);
-    try {
-      // The plugin retries once after 1s before giving up.
-      await waitFor(() => errors.some((line) => line.includes("failed to inject")), 3000);
-      assert.equal(calls.synthetic.length, 0);
-    } finally {
-      cleanup();
-    }
+    const cleanup = await setupV2({ session: { synthetic: async () => ({}) } });
+    cleanup();
   } finally {
     console.error = original;
   }
+  assert.equal(errors.filter((line) => line.includes("no event.subscribe")).length, 1);
 });
 
-test("disabled plugin does not subscribe", async () => {
-  const { ctx, calls } = makeContext({ options: { enabled: false } });
-  const cleanup = await setupV2(ctx);
-  cleanup();
-  assert.equal(calls.subscribe.length, 0);
+test("context without send transports stays inert and never subscribes", async () => {
+  const errors = [];
+  const subscribes = [];
+  const original = console.error;
+  console.error = (...args) => {
+    errors.push(args.join(" "));
+  };
+  try {
+    const cleanup = await setupV2({
+      session: {},
+      event: {
+        subscribe: (options) => {
+          subscribes.push(options);
+          return {
+            [Symbol.asyncIterator]() {
+              return { next: async () => ({ done: true, value: undefined }) };
+            },
+          };
+        },
+      },
+    });
+    cleanup();
+  } finally {
+    console.error = original;
+  }
+  assert.equal(subscribes.length, 0);
+  assert.match(errors.join("\n"), /neither session\.synthetic\(\) nor session\.prompt\(\)/);
 });

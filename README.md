@@ -198,6 +198,8 @@ OpenCode v1 在压缩后追加一个通用的合成“继续”回合。若该�
   再运行 `bash install.sh --verify`，非 0 退出时按输出修复；常见原因是模块目录对宿主账号不可穿越，或旧布局的 `plugin/opencode-compact-resume/` 仍在。
   缺少 `.install-info` 说明副本早于 0.1.5，重跑 `install.sh` 刷新。
   该故障没有插件日志，因为 `import` 在钩子注册前就失败。
+- **1.x 宿主用 `setup` 加载插件**：部分 1.x 宿主把经典 input（`client` / `directory`）传给 `setup`。v1 钩子只经 `server()` 注册，本插件在这条路径保持 inert，日志出现一次 `setup() received the classic v1 input` 告警，不再报 `compaction event subscription failed`。若同一次启动也调用 `server()`，提醒照常工作。
+- **v2 加载日志出现 `resume inactive`**：宿主 ctx 缺 `event.subscribe` 或 `session.synthetic` / `session.prompt`，插件保持 inert 并各告警一次，不会向半初始化的 ctx 订阅。
 - **v2 安装失败**：说明符可能以 `name@` 开头。v2 按最后一个 `@` 切分后会尝试从 registry 安装；改用裸 `git+https://…`。
 - **两个宿主都装不上**：克隆需要仓库可访问；仓库自带 `dist/`，宿主安装不再需要构建依赖。查看宿主日志中的 `Failed to install plugin`。
 - **提醒文案没生效**：v1 需使用元组选项或环境变量；v2 在插件加载时读取 `options` 字段。
