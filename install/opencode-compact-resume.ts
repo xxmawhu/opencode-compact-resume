@@ -8,6 +8,9 @@
 //
 // Do not add named exports: the v1 legacy loader treats every export as a
 // plugin function.
-import hybrid from "./opencode-compact-resume/index.js";
+// The module dir lives outside plugin/: opencode2 loads every first-level
+// directory under plugin/ as a plugin package, which would load the library a
+// second time and rely on undocumented id de-duplication.
+import hybrid from "../opencode-compact-resume-lib/index.js";
 
 export default hybrid;

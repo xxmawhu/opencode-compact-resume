@@ -9,19 +9,28 @@
 #   bash install.sh --uninstall
 #
 # Installed layout:
-#   <config>/plugin/opencode-compact-resume.ts   local entry (v1 + v2)
-#   <config>/plugin/opencode-compact-resume/     dist modules + package.json + .install-info
+#   <config>/plugin/opencode-compact-resume.ts       local entry (v1 + v2)
+#   <config>/opencode-compact-resume-lib/            dist modules + package.json + .install-info
+#
+# The module dir deliberately lives outside <config>/plugin/: opencode2 treats
+# every first-level directory under `plugin/` as a plugin package, so keeping
+# the library there loads it as a second plugin and relies on the host's
+# undocumented id de-duplication to avoid a double setup.
 set -euo pipefail
 
 PLUGIN_NAME="opencode-compact-resume"
 SCRIPT_DIR="$(cd -- "$(dirname -- "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
 CONFIG_DIR="${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-${HOME}/.config}/opencode}"
 PLUGIN_DIR="${CONFIG_DIR}/plugin"
-LIB_DIR="${PLUGIN_DIR}/${PLUGIN_NAME}"
+LIB_DIR="${CONFIG_DIR}/${PLUGIN_NAME}-lib"
+# Layout used before the module dir moved out of plugin/; removed on install so
+# opencode2 stops scanning it.
+LEGACY_LIB_DIR="${PLUGIN_DIR}/${PLUGIN_NAME}"
 ENTRY_FILE="${PLUGIN_DIR}/${PLUGIN_NAME}.ts"
 ENTRY_SOURCE="${SCRIPT_DIR}/install/${PLUGIN_NAME}.ts"
 DIST_DIR="${SCRIPT_DIR}/dist"
-readonly PLUGIN_NAME SCRIPT_DIR CONFIG_DIR PLUGIN_DIR LIB_DIR ENTRY_FILE ENTRY_SOURCE DIST_DIR
+readonly PLUGIN_NAME SCRIPT_DIR CONFIG_DIR PLUGIN_DIR LIB_DIR LEGACY_LIB_DIR \
+  ENTRY_FILE ENTRY_SOURCE DIST_DIR
 
 info() { printf '[install] %s\n' "$*"; }
 
@@ -73,14 +82,19 @@ install_plugin() {
   mkdir -p -- "${PLUGIN_DIR}" 2>/dev/null ||
     die "cannot create ${PLUGIN_DIR} (read-only or no permission)"
   # Fail with the real reason instead of letting mktemp abort under set -e: the
-  # plugin dir is often owned by the desktop user while OpenCode runs as another
+  # config dir is often owned by the desktop user while OpenCode runs as another
   # account that can only read the config tree.
+  if [[ ! -w "${CONFIG_DIR}" ]]; then
+    die "cannot write ${CONFIG_DIR} (owned by $(stat -c '%U' -- "${CONFIG_DIR}"), running as $(id -un)); run install.sh as the owner of the OpenCode config dir"
+  fi
   if [[ ! -w "${PLUGIN_DIR}" ]]; then
     die "cannot write ${PLUGIN_DIR} (owned by $(stat -c '%U' -- "${PLUGIN_DIR}"), running as $(id -un)); run install.sh as the owner of the OpenCode config dir"
   fi
 
   local staging tmp_entry
-  staging="$(mktemp -d "${PLUGIN_DIR}/.${PLUGIN_NAME}.stage.XXXXXX")"
+  # Stage beside the final module dir so the rename stays on one filesystem,
+  # and outside plugin/ so a concurrent host scan never sees a partial package.
+  staging="$(mktemp -d "${CONFIG_DIR}/.${PLUGIN_NAME}-lib.stage.XXXXXX")"
   # shellcheck disable=SC2064 # expand the staging path now, not at exit time
   trap "rm -rf -- '${staging}'" EXIT
 
@@ -110,6 +124,13 @@ EOF
   mv -- "${staging}" "${LIB_DIR}"
   chmod 0755 -- "${LIB_DIR}"
   trap - EXIT
+
+  # Drop the previous layout's module dir from the scan path; otherwise opencode2
+  # keeps loading it as a second plugin even though the entry imports the new copy.
+  if [[ -d "${LEGACY_LIB_DIR}" ]]; then
+    rm -rf -- "${LEGACY_LIB_DIR}"
+    info "removed legacy module dir ${LEGACY_LIB_DIR}"
+  fi
 
   # Write the entry through a temp file in the same directory, then rename.
   tmp_entry="$(mktemp "${PLUGIN_DIR}/.${PLUGIN_NAME}.entry.XXXXXX")"
@@ -168,6 +189,14 @@ verify_permissions() {
 # one OpenCode itself runs as. Exit status is the health signal.
 verify_installed() {
   local status=0 path
+  # Old layout: the module dir sits in plugin/, where opencode2 loads every
+  # first-level directory as a plugin package. Report it even when the new
+  # layout is missing, so an upgrade starts with the real reason.
+  if [[ -d "${LEGACY_LIB_DIR}" ]]; then
+    printf '[verify] legacy module dir inside the plugin scan path: %s\n' "${LEGACY_LIB_DIR}" >&2
+    printf '[verify] opencode2 loads each first-level dir under plugin/ as a plugin; rerun install.sh to move it out\n' >&2
+    status=1
+  fi
   if [[ ! -d "${LIB_DIR}" || ! -f "${ENTRY_FILE}" ]]; then
     printf '[verify] not installed under %s\n' "${CONFIG_DIR}" >&2
     printf '[verify] run: bash install.sh\n' >&2
@@ -191,9 +220,10 @@ verify_installed() {
   fi
 
   if ((status == 0)); then
+    printf '[verify] layout ok: entry is the only plugin artifact; module dir is outside plugin/\n'
     printf '[verify] ok: the host account can traverse the module dir and read every file\n'
   else
-    printf '[verify] FAILED: the host account cannot read the installed copy\n' >&2
+    printf '[verify] FAILED: installed copy needs repair (see messages above)\n' >&2
   fi
   return "${status}"
 }
@@ -214,6 +244,7 @@ warn_duplicate_registration() {
 
 uninstall_plugin() {
   rm -rf -- "${LIB_DIR}"
+  rm -rf -- "${LEGACY_LIB_DIR}"
   rm -f -- "${ENTRY_FILE}"
   info "removed ${ENTRY_FILE}"
   info "removed ${LIB_DIR}/"

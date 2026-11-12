@@ -10,6 +10,7 @@ import {
   readFileSync,
   rmSync,
   statSync,
+  writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -25,7 +26,8 @@ function sandbox() {
   return {
     config,
     entry: join(config, "plugin", `${pluginName}.ts`),
-    lib: join(config, "plugin", pluginName),
+    lib: join(config, `${pluginName}-lib`),
+    legacyLib: join(config, "plugin", pluginName),
     cleanup() {
       rmSync(base, { recursive: true, force: true });
     },
@@ -74,6 +76,17 @@ test("copies the entry and every dist module into the config dir", (t) => {
   const entry = readFileSync(box.entry, "utf8");
   assert.match(entry, /export default hybrid;/);
   assert.doesNotMatch(entry, /export\s+(const|let|var|function|class|\{)/);
+  assert.match(
+    entry,
+    /from "\.\.\/opencode-compact-resume-lib\/index\.js"/,
+    "entry imports the module dir from outside the plugin scan path",
+  );
+
+  // opencode2 loads every first-level directory under plugin/ as a plugin, so
+  // the module dir must not live there and no legacy copy may remain.
+  assert.equal(existsSync(box.legacyLib), false, "no module dir inside plugin/");
+  const pluginEntries = readdirSync(join(box.config, "plugin"));
+  assert.deepEqual(pluginEntries, [`${pluginName}.ts`]);
 });
 
 // Regression: the module dir used to keep mktemp's 0700 mode, so an OpenCode
@@ -188,9 +201,42 @@ test("reinstalling replaces the previous copy and leaves no staging dirs", (t) =
   install(box.config);
 
   const pluginDir = join(box.config, "plugin");
-  const leftovers = readdirSync(pluginDir).filter((name) => name.startsWith(`.${pluginName}.`));
+  const leftovers = readdirSync(pluginDir).filter((name) => name.startsWith(`.${pluginName}`));
   assert.deepEqual(leftovers, []);
-  assert.deepEqual(readdirSync(pluginDir).sort(), [pluginName, `${pluginName}.ts`].sort());
+  assert.deepEqual(readdirSync(pluginDir), [`${pluginName}.ts`]);
+  const configLeftovers = readdirSync(box.config).filter((name) => name.includes(".stage."));
+  assert.deepEqual(configLeftovers, []);
+});
+
+// Regression: 0.1.6 installed the module dir into plugin/opencode-compact-resume/,
+// which opencode2 loads as a second plugin. Reinstalling must move the library
+// out of the scan path instead of leaving the old copy behind.
+test("installing over the legacy layout removes the module dir from plugin/", (t) => {
+  const box = sandbox();
+  t.after(() => box.cleanup());
+
+  mkdirSync(box.legacyLib, { recursive: true });
+  const legacyMarker = join(box.legacyLib, "index.js");
+  writeFileSync(legacyMarker, "export default {};\n");
+
+  const output = install(box.config);
+
+  assert.match(output, /removed legacy module dir/);
+  assert.equal(existsSync(box.legacyLib), false);
+  assert.ok(existsSync(join(box.lib, "index.js")));
+  assert.deepEqual(readdirSync(join(box.config, "plugin")), [`${pluginName}.ts`]);
+});
+
+test("--verify rejects the legacy layout still inside plugin/", (t) => {
+  const box = sandbox();
+  t.after(() => box.cleanup());
+  install(box.config);
+  mkdirSync(box.legacyLib, { recursive: true });
+
+  const result = runInstaller(box.config, ["--verify"]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /legacy module dir inside the plugin scan path/);
 });
 
 test("uninstall removes the entry and the module directory", (t) => {
@@ -202,6 +248,16 @@ test("uninstall removes the entry and the module directory", (t) => {
 
   assert.equal(existsSync(box.entry), false);
   assert.equal(existsSync(box.lib), false);
+});
+
+test("uninstall also removes a legacy module dir inside plugin/", (t) => {
+  const box = sandbox();
+  t.after(() => box.cleanup());
+
+  mkdirSync(box.legacyLib, { recursive: true });
+  install(box.config, ["--uninstall"]);
+
+  assert.equal(existsSync(box.legacyLib), false);
 });
 
 test("unknown arguments fail without touching the install", (t) => {

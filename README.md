@@ -53,7 +53,9 @@ bash install.sh
 | 目标路径                                     | 作用                          |
 | -------------------------------------------- | ----------------------------- |
 | `<config>/plugin/opencode-compact-resume.ts` | 本地插件入口（v1 / v2）       |
-| `<config>/plugin/opencode-compact-resume/`   | 编译后的模块与 `package.json` |
+| `<config>/opencode-compact-resume-lib/`      | 编译后的模块与 `package.json` |
+
+模块目录刻意放在 `plugin/` 之外：opencode2 会把 `plugin/` 下每个一级子目录当作插件包加载，放在里面会同一次启动加载两次，只靠宿主按 `id` 去重才不会重复执行。本仓不依赖该隐式行为。
 
 `<config>` 默认 `${XDG_CONFIG_HOME:-$HOME/.config}/opencode`，可用 `OPENCODE_CONFIG_DIR` 覆盖：
 
@@ -63,7 +65,7 @@ OPENCODE_CONFIG_DIR=/path/to/opencode bash install.sh
 
 更新：`git pull && bash install.sh`；卸载：`bash install.sh --uninstall`。脚本只复制文件，重复执行覆盖旧副本。`dist/` 随后续提交更新；改动源码后先 `npm ci && npm run build` 再提交。
 
-升级必须重跑 `install.sh`：`git pull` 只更新仓库，已安装副本不会被改写。旧版安装器留下的模块目录可能是 `2700`，重跑后才会变成可穿越的目录。
+升级必须重跑 `install.sh`：`git pull` 只更新仓库，已安装副本不会被改写。旧版安装器留下的模块目录可能是 `2700`，重跑后才会变成可穿越的目录。旧版把模块目录放在 `plugin/opencode-compact-resume/`，重跑会移到 `opencode-compact-resume-lib/` 并删除旧目录。
 
 安装产物固定为目录 `0755`、文件 `0644`。OpenCode 可能以另一个账号运行（运行账号 ≠ 执行 `install.sh` 的账号），目录不可穿越时 `import` 会在插件加载前失败，压缩后就不会有注入且没有插件日志。脚本在安装末尾校验这两项，不满足即报错退出。
 
@@ -73,7 +75,7 @@ OPENCODE_CONFIG_DIR=/path/to/opencode bash install.sh
 bash install.sh --verify
 ```
 
-输出包含配置目录属主、当前账号、每个产物的模式与 `.install-info` 标记；失败非 0 退出。
+输出包含配置目录属主、当前账号、每个产物的模式与 `.install-info` 标记；失败非 0 退出。若 `plugin/opencode-compact-resume/` 仍在（旧布局），自检同样失败并提示重跑安装。
 
 若曾用下面的宿主原生方式注册过本插件，先删掉 `opencode.json` 里的条目再运行 `install.sh`，否则同一次压缩会注入两条提醒。安装脚本发现残留注册会打印 warning。
 
@@ -138,9 +140,10 @@ v1 以对象入口加载插件：宿主调用默认导出的 `server()`。本仓
 ## 验证安装
 
 1. `bash install.sh --verify` 退出码为 0，且副本目录显示 `drwxr-xr-x`（或带 setgid 的 `drwxr-sr-x`）。
-2. 复制安装：`opencode debug info` 的 `plugins:` 列表包含 `<config>/plugin/opencode-compact-resume.ts`。宿主原生安装：v2 执行 `opencode plugin list`，v1 检查服务日志有无插件加载错误。
-3. 在任意会话触发一次压缩。
-4. 会话收到一次提醒。
+2. opencode2 只加载一个入口：启动日志中 `msg="loading plugin"` 恰有 1 条（本插件入口），`failed to load plugin` 为 0。`debug info` / `plugin list` 只表示被发现，不能替代加载日志。
+3. v1 检查 `run` 日志有无插件加载错误；`debug info` 只表示被发现。
+4. 在任意会话触发一次压缩。
+5. 会话收到一次提醒。
 
 ## 选项
 
@@ -192,7 +195,7 @@ OpenCode v1 在压缩后追加一个通用的合成“继续”回合。若该�
 ## 排障
 
 - **压缩后没有提醒**：先确认未设置 `OPENCODE_COMPACT_RESUME_DISABLED`、会话不是子会话、插件入口出现在 `opencode debug info` 的 `plugins:` 列表。
-  再运行 `bash install.sh --verify`，非 0 退出时按输出修复；常见原因是模块目录对宿主账号不可穿越。
+  再运行 `bash install.sh --verify`，非 0 退出时按输出修复；常见原因是模块目录对宿主账号不可穿越，或旧布局的 `plugin/opencode-compact-resume/` 仍在。
   缺少 `.install-info` 说明副本早于 0.1.5，重跑 `install.sh` 刷新。
   该故障没有插件日志，因为 `import` 在钩子注册前就失败。
 - **v2 安装失败**：说明符可能以 `name@` 开头。v2 按最后一个 `@` 切分后会尝试从 registry 安装；改用裸 `git+https://…`。
