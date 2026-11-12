@@ -52,7 +52,7 @@ bash install.sh
 
 | 目标路径                                     | 作用                          |
 | -------------------------------------------- | ----------------------------- |
-| `<config>/plugin/opencode-compact-resume.ts` | v1 本地插件入口               |
+| `<config>/plugin/opencode-compact-resume.ts` | 本地插件入口（v1 / v2）       |
 | `<config>/plugin/opencode-compact-resume/`   | 编译后的模块与 `package.json` |
 
 `<config>` 默认 `${XDG_CONFIG_HOME:-$HOME/.config}/opencode`，可用 `OPENCODE_CONFIG_DIR` 覆盖：
@@ -106,9 +106,9 @@ opencode plugin add git+https://github.com/xxmawhu/opencode-compact-resume.git
 
 说明符必须保持裸 URL。宿主按最后一个 `@` 切分 `name@version`，`name@git+https://…` 会被当作 `name` 加版本并回落到 registry；同理不要用 `git+ssh://git@github.com/…`。
 
-#### OpenCode v1（>= 1.18.29）
+#### OpenCode v1（1.18.14 实测）
 
-v1 的对象入口（`server()`）需要 OpenCode `1.18.29` 及以上。更旧的 v1 请以经典函数形式作为本地插件加载。
+v1 以对象入口加载插件：宿主调用默认导出的 `server()`。本仓在 `1.18.14` 实测通过；更旧版本未验证。本地复制安装的入口与这里使用同一个对象定义。
 
 `opencode.json`：
 

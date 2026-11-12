@@ -2,9 +2,8 @@
  * Hybrid entrypoint: one npm package that works in OpenCode v1 and v2.
  *
  * - v2 loads the default export as a server part (`{ id, setup }`).
- * - v1 (>= 1.18.29) loads the default export as an object entrypoint and calls
- *   `server(input, options)` to obtain the classic hook map. Older v1 builds
- *   need the classic `plugin` entry instead; see README.
+ * - v1 (verified on 1.18.14) loads the default export as an object entrypoint
+ *   and calls `server(input, options)` to obtain the classic hook map.
  *
  * Both implementations share `src/injector.ts` and `src/options.ts`, so
  * delivery, de-duplication and configuration behave identically.

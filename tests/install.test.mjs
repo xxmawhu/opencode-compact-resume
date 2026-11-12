@@ -66,7 +66,14 @@ test("copies the entry and every dist module into the config dir", (t) => {
 
   const manifest = JSON.parse(readFileSync(join(box.lib, "package.json"), "utf8"));
   assert.equal(manifest.type, "module");
-  assert.match(readFileSync(box.entry, "utf8"), /hybrid\.server\(input\)/);
+
+  // opencode2 reads the default export as an object ({ id, setup }); a
+  // function default fails with SchemaError(Expected object). v1 calls
+  // `server()` on the same object. Named exports would be loaded as extra v1
+  // plugin functions.
+  const entry = readFileSync(box.entry, "utf8");
+  assert.match(entry, /export default hybrid;/);
+  assert.doesNotMatch(entry, /export\s+(const|let|var|function|class|\{)/);
 });
 
 // Regression: the module dir used to keep mktemp's 0700 mode, so an OpenCode

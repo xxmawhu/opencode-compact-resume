@@ -9,7 +9,7 @@
 #   bash install.sh --uninstall
 #
 # Installed layout:
-#   <config>/plugin/opencode-compact-resume.ts   v1 legacy entry
+#   <config>/plugin/opencode-compact-resume.ts   local entry (v1 + v2)
 #   <config>/plugin/opencode-compact-resume/     dist modules + package.json + .install-info
 set -euo pipefail
 

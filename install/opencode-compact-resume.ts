@@ -1,14 +1,13 @@
-// Local OpenCode v1 plugin entry, copied to
+// Local plugin entry, copied to
 // ~/.config/opencode/plugin/opencode-compact-resume.ts by install.sh.
 //
-// The v1 legacy loader treats every export of a local plugin module as a
-// plugin function, so this file must not export constants or types. The hybrid
-// package default export is an object ({ id, setup, server }); `server()` is
-// the classic v1 hook factory, which is the form host builds older than
-// 1.18.29 load (see README).
+// opencode2 requires the default export to be an object with an id and a
+// setup (or effect) function. OpenCode v1 (verified on 1.18.14) accepts the
+// same object and calls `server()` to obtain the classic hook map. Export the
+// hybrid package default directly so both loaders see one definition.
+//
+// Do not add named exports: the v1 legacy loader treats every export as a
+// plugin function.
 import hybrid from "./opencode-compact-resume/index.js";
 
-const createPlugin = (input) => hybrid.server(input);
-
-export const Plugin = createPlugin;
-export default createPlugin;
+export default hybrid;
