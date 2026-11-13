@@ -12,17 +12,25 @@ export const V2_COMPACTION_ENDED = "session.compaction.ended";
  * @returns cleanup function registered by `Plugin.define({ setup })`.
  */
 export function setupV2(ctx) {
-    const config = normalizeOptions(ctx.options);
+    const rawOptions = ctx?.options;
+    const config = normalizeOptions(rawOptions);
     if (!config.enabled)
         return Promise.resolve(() => { });
+    // A non-v2 context (the host inspecting the entrypoint, a client-side call)
+    // has no session domain at all. Reporting it as a v2 context that lacks
+    // event.subscribe is startup noise: it says nothing about the real v2 server
+    // context the user is trying to diagnose.
+    if (!hasSessionDomain(ctx))
+        return Promise.resolve(() => { });
     const logger = createConsoleLogger(config.verbose);
-    // The v2 contract is structural: older builds and v1-shaped inputs may miss
-    // any of these members. Detect a missing capability before subscribing so the
-    // plugin stays inert with one diagnostic instead of failing mid-setup.
+    // The v2 contract is structural: older builds may miss any of these members.
+    // Detect a missing capability before subscribing so the plugin stays inert
+    // with one diagnostic instead of failing mid-setup.
     if (!hasEventSubscription(ctx)) {
-        // [log-review] warning because: (1) the host exposes no event stream, (2)
-        // the reminder can never fire, (3) scope: one line per load.
-        logger("warn", "v2 context has no event.subscribe(); resume inactive");
+        // [log-review] warning because: (1) the context is v2-shaped but exposes no
+        // event stream, (2) the reminder can never fire, (3) scope: one line per
+        // load. The payload lets the user report which host path produced it.
+        logger("warn", "v2 context has no event.subscribe(); resume inactive", describeContext(ctx));
         return Promise.resolve(() => { });
     }
     if (!hasSendTransport(ctx)) {
@@ -42,6 +50,15 @@ export function setupV2(ctx) {
         controller.abort();
     });
 }
+/**
+ * A v2 server context always carries a `session` domain. Anything else (the
+ * classic v1 input, a bare probe object, `undefined`) is not a v2 context and
+ * must not be reported as one.
+ */
+function hasSessionDomain(ctx) {
+    const candidate = ctx;
+    return typeof candidate?.session === "object" && candidate.session !== null;
+}
 function hasEventSubscription(ctx) {
     const candidate = ctx;
     return typeof candidate?.event?.subscribe === "function";
@@ -50,6 +67,21 @@ function hasSendTransport(ctx) {
     const candidate = ctx;
     return (typeof candidate?.session?.synthetic === "function" ||
         typeof candidate?.session?.prompt === "function");
+}
+/**
+ * Shape snapshot attached to the missing-capability warning. The host path is
+ * otherwise invisible to users, so these fields distinguish "a v2 build
+ * without event.subscribe" from "some other host calling setup".
+ */
+function describeContext(ctx) {
+    const candidate = ctx;
+    return {
+        keys: Object.keys(candidate),
+        session: typeof candidate.session,
+        event: typeof candidate.event,
+        subscribe: typeof candidate.event?.subscribe,
+        directory: candidate.location?.directory,
+    };
 }
 async function consumeCompactionEvents(ctx, injector, controller, logger) {
     try {

@@ -179,6 +179,29 @@ test("context without event.subscribe stays inert with one warning", async () =>
     console.error = original;
   }
   assert.equal(errors.filter((line) => line.includes("no event.subscribe")).length, 1);
+  const payload = JSON.parse(errors.join("\n").slice(errors.join("\n").indexOf("{")));
+  assert.deepEqual(payload.keys, ["session"]);
+  assert.equal(payload.session, "object");
+  assert.equal(payload.event, "undefined");
+  assert.equal(payload.subscribe, "undefined");
+});
+
+test("non-v2 context without a session domain stays silent", async () => {
+  const logs = [];
+  const original = console.error;
+  const originalLog = console.log;
+  console.error = (...args) => logs.push(args.join(" "));
+  console.log = (...args) => logs.push(args.join(" "));
+  try {
+    for (const ctx of [{}, undefined]) {
+      const cleanup = await setupV2(ctx);
+      cleanup();
+    }
+  } finally {
+    console.error = original;
+    console.log = originalLog;
+  }
+  assert.deepEqual(logs, []);
 });
 
 test("context without send transports stays inert and never subscribes", async () => {

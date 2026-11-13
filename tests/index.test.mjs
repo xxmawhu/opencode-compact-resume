@@ -106,3 +106,40 @@ test("setup() with a v2 context missing event.subscribe stays inert", async () =
   cleanup();
   assert.match(capture.lines.join("\n"), /no event\.subscribe/);
 });
+
+test("setup() with an unknown context shape stays silent and inert", async () => {
+  const capture = captureConsole();
+  try {
+    for (const ctx of [{}, undefined]) {
+      const cleanup = await plugin.setup(ctx);
+      assert.equal(typeof cleanup, "function");
+      cleanup();
+    }
+  } finally {
+    capture.restore();
+  }
+  assert.deepEqual(capture.lines, []);
+});
+
+test("setup() attaches the ctx shape to the missing event.subscribe warning", async () => {
+  const capture = captureConsole();
+  let cleanup;
+  try {
+    cleanup = await plugin.setup({
+      session: { synthetic: async () => ({}) },
+      location: { directory: "/tmp/demo" },
+    });
+  } finally {
+    capture.restore();
+  }
+
+  cleanup();
+  const log = capture.lines.join("\n");
+  assert.match(log, /no event\.subscribe/);
+  const payload = JSON.parse(log.slice(log.indexOf("{")));
+  assert.deepEqual(payload.keys, ["session", "location"]);
+  assert.equal(payload.session, "object");
+  assert.equal(payload.event, "undefined");
+  assert.equal(payload.subscribe, "undefined");
+  assert.equal(payload.directory, "/tmp/demo");
+});
