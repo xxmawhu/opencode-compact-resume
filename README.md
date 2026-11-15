@@ -79,6 +79,31 @@ bash install.sh --verify
 
 若曾用下面的宿主原生方式注册过本插件，先删掉 `opencode.json` 里的条目再运行 `install.sh`，否则同一次压缩会注入两条提醒。安装脚本发现残留注册会打印 warning。
 
+### 安装契约（OpenCode 插件安装布局与双代入口契约 v1）
+
+| 条款                  | 本仓落地                                                                                                                                                               |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1 扫描区只放入口     | `<config>/plugin/` 只有 `opencode-compact-resume.ts`；遗留 `plugin/opencode-compact-resume/` 与 `plugin/opencode-compact-resume-lib/` 由安装器删除                     |
+| R2 共享库外置         | 库在 `<config>/opencode-compact-resume-lib/`；入口 `import "../opencode-compact-resume-lib/index.js"`（库内 `package.json` 为 `type: module`，ESM 语义与 `.mjs` 等价） |
+| R3 默认导出形态       | 单一对象 `{ id, setup, server }`；无函数默认导出，无命名导出                                                                                                           |
+| R4 单次生效           | 单入口混合对象，两个宿主各加载一次；每进程激活 1 次，不依赖宿主按 `id` 去重                                                                                            |
+| R5 能力守卫           | `setup` / `server` 先判类型再调用；v1 形态 input 转交 `server()` 返回钩子表；缺能力时 inert，不抛错                                                                    |
+| R6 幂等安装与遗留清理 | 重复安装结果一致；内容未变不更新时间戳；模块目录先同级暂存再 `rename`，入口用同目录临时文件 + `mv`；删除历史扫描路径                                                   |
+| R7 零告警验收         | 两个宿主各跑 ≥3 轮：`failed to load plugin` = 0，每进程加载/激活 = 1                                                                                                   |
+| R8 日志语义           | 设计内降级用 `info`（默认不输出）；`warn` 只用于能力缺失等真实降级且附可核验原因。宿主不提供文件日志 API，插件日志经宿主日志通道输出                                   |
+
+零告警验收（隔离配置目录执行；`find` 只允许出现宿主原生插件包，本插件路径必须为空）：
+
+```sh
+CFG=${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}
+find "$CFG/plugin" "$CFG/plugins" -mindepth 1 -maxdepth 2 -type d
+opencode --standalone --print-logs --log-level debug run hi --model nonexistent/nonexistent 2>&1 | grep -c 'failed to load plugin'   # 期望 0
+opencode debug info | grep -c opencode-compact-resume                        # 期望 ≥1
+opencode run hi --model nonexistent/nonexistent --print-logs --log-level DEBUG 2>&1 | grep -c 'failed to load plugin'   # 期望 0
+```
+
+两个宿主各重复 ≥3 轮，计数一致即通过。
+
 ### 自动部署（repo-keeper 拉取侧）
 
 由 repo-keeper 拉取的部署副本，例如 `regular_task/opencode-compact-resume`，靠 `post-merge` stage 在更新后执行 `install.sh`。
@@ -139,11 +164,12 @@ v1 以对象入口加载插件：宿主调用默认导出的 `server()`。本仓
 
 ## 验证安装
 
-1. `bash install.sh --verify` 退出码为 0，且副本目录显示 `drwxr-xr-x`（或带 setgid 的 `drwxr-sr-x`）。
+1. `bash install.sh --verify` 退出码为 0，且副本目录显示 `drwxr-xr-x`（或带 setgid 的 `drwxr-sr-x`）。重复执行 `install.sh` 输出 `unchanged`，副本时间戳不变。
 2. opencode2 只加载一个入口：启动日志中 `msg="loading plugin"` 恰有 1 条（本插件入口），`failed to load plugin` 为 0。`debug info` / `plugin list` 只表示被发现，不能替代加载日志。
 3. v1 检查 `run` 日志有无插件加载错误；`debug info` 只表示被发现。
-4. 在任意会话触发一次压缩。
-5. 会话收到一次提醒。
+4. 两个宿主各重复 ≥3 轮，计数一致（零告警验收，见「安装契约」）。
+5. 在任意会话触发一次压缩。
+6. 会话收到一次提醒。
 
 ## 选项
 
@@ -198,7 +224,7 @@ OpenCode v1 在压缩后追加一个通用的合成“继续”回合。若该�
   再运行 `bash install.sh --verify`，非 0 退出时按输出修复；常见原因是模块目录对宿主账号不可穿越，或旧布局的 `plugin/opencode-compact-resume/` 仍在。
   缺少 `.install-info` 说明副本早于 0.1.5，重跑 `install.sh` 刷新。
   该故障没有插件日志，因为 `import` 在钩子注册前就失败。
-- **1.x 宿主用 `setup` 加载插件**：部分 1.x 宿主把经典 input（`client` / `directory`）传给 `setup`。v1 钩子只经 `server()` 注册，本插件在这条路径保持 inert，日志出现一次 `setup() received the classic v1 input` 告警，不再报 `compaction event subscription failed`。若同一次启动也调用 `server()`，提醒照常工作。
+- **1.x 宿主用 `setup` 加载插件**：部分 1.x 宿主把经典 input（`client` / `directory`）传给 `setup`。入口识别该形态后转交 `server()`，返回 v1 钩子表，提醒照常工作；若该 input 没有 `session.promptAsync` / `session.prompt`，插件保持 inert，仅在 `verbose` 下记一条 `info`，不再每次启动打印告警。1.18.14 实测只调用 `server()`。
 - **v2 加载日志出现 `resume inactive`**：只有带 `session` 域的 v2 形态 ctx 才会告警。缺 `event.subscribe` 时告警附带 `keys` / `session` / `event` / `subscribe` / `directory`，可直接报告宿主路径；缺 `session.synthetic` 与 `session.prompt` 时另一条告警。非 v2 形态的 ctx（如宿主检查调用、`{}`）静默 inert，不再打印该行。
 - **v2 安装失败**：说明符可能以 `name@` 开头。v2 按最后一个 `@` 切分后会尝试从 registry 安装；改用裸 `git+https://…`。
 - **两个宿主都装不上**：克隆需要仓库可访问；仓库自带 `dist/`，宿主安装不再需要构建依赖。查看宿主日志中的 `Failed to install plugin`。

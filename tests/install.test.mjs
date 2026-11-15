@@ -28,6 +28,7 @@ function sandbox() {
     entry: join(config, "plugin", `${pluginName}.ts`),
     lib: join(config, `${pluginName}-lib`),
     legacyLib: join(config, "plugin", pluginName),
+    legacyScannedLib: join(config, "plugin", `${pluginName}-lib`),
     cleanup() {
       rmSync(base, { recursive: true, force: true });
     },
@@ -232,6 +233,59 @@ test("--verify rejects the legacy layout still inside plugin/", (t) => {
   t.after(() => box.cleanup());
   install(box.config);
   mkdirSync(box.legacyLib, { recursive: true });
+
+  const result = runInstaller(box.config, ["--verify"]);
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /legacy module dir inside the plugin scan path/);
+});
+
+// Contract R6: a repeated install with unchanged content must not bump the
+// timestamps of the installed copy; only a content change rewrites files.
+test("reinstalling unchanged content keeps mtimes and the marker", (t) => {
+  const box = sandbox();
+  t.after(() => box.cleanup());
+
+  install(box.config);
+  const markerPath = join(box.lib, ".install-info");
+  const before = {
+    lib: statSync(box.lib, { bigint: true }).mtimeNs,
+    entry: statSync(box.entry, { bigint: true }).mtimeNs,
+    marker: statSync(markerPath, { bigint: true }).mtimeNs,
+    markerBody: readFileSync(markerPath, "utf8"),
+  };
+
+  const output = install(box.config);
+
+  assert.match(output, /unchanged .*opencode-compact-resume-lib/);
+  assert.match(output, /unchanged .*opencode-compact-resume\.ts/);
+  assert.equal(statSync(box.lib, { bigint: true }).mtimeNs, before.lib);
+  assert.equal(statSync(box.entry, { bigint: true }).mtimeNs, before.entry);
+  assert.equal(statSync(markerPath, { bigint: true }).mtimeNs, before.marker);
+  assert.equal(readFileSync(markerPath, "utf8"), before.markerBody);
+});
+
+// Regression: a module dir at plugin/<name>-lib/ would be loaded by opencode2
+// as a second plugin (contract R1/R6).
+test("installing removes a module dir left at plugin/<name>-lib/", (t) => {
+  const box = sandbox();
+  t.after(() => box.cleanup());
+
+  mkdirSync(box.legacyScannedLib, { recursive: true });
+  writeFileSync(join(box.legacyScannedLib, "index.js"), "export default {};\n");
+
+  const output = install(box.config);
+
+  assert.match(output, /removed legacy module dir/);
+  assert.equal(existsSync(box.legacyScannedLib), false);
+  assert.deepEqual(readdirSync(join(box.config, "plugin")), [`${pluginName}.ts`]);
+});
+
+test("--verify rejects a module dir still at plugin/<name>-lib/", (t) => {
+  const box = sandbox();
+  t.after(() => box.cleanup());
+  install(box.config);
+  mkdirSync(box.legacyScannedLib, { recursive: true });
 
   const result = runInstaller(box.config, ["--verify"]);
 

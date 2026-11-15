@@ -16,6 +16,16 @@
 # every first-level directory under `plugin/` as a plugin package, so keeping
 # the library there loads it as a second plugin and relies on the host's
 # undocumented id de-duplication to avoid a double setup.
+#
+# OpenCode plugin installation contract v1 (local implementation):
+#   - the library stays outside the scan path; plugin/ holds the entry only (R1, R2)
+#   - one hybrid object entry activates exactly once per host process (R3, R4)
+#   - setup/server guard every host capability before use (R5)
+#   - this installer is idempotent: legacy scan-path dirs are removed, unchanged
+#     content keeps its mtime, and each artifact is staged next to its target
+#     then renamed into place (R6)
+#   - zero-warning acceptance (R7) means both hosts load with
+#     `failed to load plugin` = 0 and one activation per process.
 set -euo pipefail
 
 PLUGIN_NAME="opencode-compact-resume"
@@ -23,14 +33,17 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)
 CONFIG_DIR="${OPENCODE_CONFIG_DIR:-${XDG_CONFIG_HOME:-${HOME}/.config}/opencode}"
 PLUGIN_DIR="${CONFIG_DIR}/plugin"
 LIB_DIR="${CONFIG_DIR}/${PLUGIN_NAME}-lib"
-# Layout used before the module dir moved out of plugin/; removed on install so
-# opencode2 stops scanning it.
+# Layouts used before the module dir moved out of plugin/; removed on install so
+# opencode2 stops scanning them. `plugin/<name>-lib/` was the mistaken in-scan
+# copy, `plugin/<name>/` the original 0.1.6 module dir.
 LEGACY_LIB_DIR="${PLUGIN_DIR}/${PLUGIN_NAME}"
+LEGACY_SCANNED_LIB_DIR="${PLUGIN_DIR}/${PLUGIN_NAME}-lib"
+LEGACY_DIRS=("${LEGACY_LIB_DIR}" "${LEGACY_SCANNED_LIB_DIR}")
 ENTRY_FILE="${PLUGIN_DIR}/${PLUGIN_NAME}.ts"
 ENTRY_SOURCE="${SCRIPT_DIR}/install/${PLUGIN_NAME}.ts"
 DIST_DIR="${SCRIPT_DIR}/dist"
 readonly PLUGIN_NAME SCRIPT_DIR CONFIG_DIR PLUGIN_DIR LIB_DIR LEGACY_LIB_DIR \
-  ENTRY_FILE ENTRY_SOURCE DIST_DIR
+  LEGACY_SCANNED_LIB_DIR LEGACY_DIRS ENTRY_FILE ENTRY_SOURCE DIST_DIR
 
 info() { printf '[install] %s\n' "$*"; }
 
@@ -72,6 +85,30 @@ read_plugin_version() {
     done <"${SCRIPT_DIR}/package.json"
   fi
   printf 'unknown'
+}
+
+# True when staging and the installed module dir hold the same files byte for
+# byte. The marker is excluded on purpose: it records when the current content
+# was installed, so rewriting it would only bump the timestamp (contract R6:
+# "内容未变时不更新时间戳").
+same_installed_content() {
+  local staged=$1 name
+  [[ -d "${LIB_DIR}" ]] || return 1
+  diff -q <(cd -- "${staged}" && printf '%s\n' *.js) \
+    <(cd -- "${LIB_DIR}" && printf '%s\n' *.js) >/dev/null || return 1
+  for name in "${staged}"/*.js; do
+    cmp -s -- "${name}" "${LIB_DIR}/$(basename -- "${name}")" || return 1
+  done
+  cmp -s -- "${staged}/package.json" "${LIB_DIR}/package.json"
+}
+
+remove_legacy_dirs() {
+  local dir
+  for dir in "${LEGACY_DIRS[@]}"; do
+    [[ -d "${dir}" ]] || continue
+    rm -rf -- "${dir}"
+    info "removed legacy module dir ${dir}"
+  done
 }
 
 install_plugin() {
@@ -119,29 +156,42 @@ EOF
   chmod 0644 -- "${staging}"/*.js "${staging}/package.json" "${staging}/.install-info"
 
   # Swap the module directory in one rename so a reader never sees a half
-  # copied library while a session is loading the plugin.
-  rm -rf -- "${LIB_DIR}"
-  mv -- "${staging}" "${LIB_DIR}"
-  chmod 0755 -- "${LIB_DIR}"
-  trap - EXIT
-
-  # Drop the previous layout's module dir from the scan path; otherwise opencode2
-  # keeps loading it as a second plugin even though the entry imports the new copy.
-  if [[ -d "${LEGACY_LIB_DIR}" ]]; then
-    rm -rf -- "${LEGACY_LIB_DIR}"
-    info "removed legacy module dir ${LEGACY_LIB_DIR}"
+  # copied library while a session is loading the plugin. Identical content is
+  # left alone so repeated installs keep the original timestamp (contract R6).
+  if same_installed_content "${staging}"; then
+    rm -rf -- "${staging}"
+    trap - EXIT
+    chmod 0755 -- "${LIB_DIR}"
+    chmod 0644 -- "${LIB_DIR}"/*.js "${LIB_DIR}/package.json"
+    info "unchanged ${LIB_DIR}/ (kept mtime)"
+  else
+    rm -rf -- "${LIB_DIR}"
+    mv -- "${staging}" "${LIB_DIR}"
+    chmod 0755 -- "${LIB_DIR}"
+    trap - EXIT
   fi
 
+  # Drop previous layouts from the scan path; otherwise opencode2 keeps loading
+  # them as extra plugins even though the entry imports the new copy.
+  remove_legacy_dirs
+
   # Write the entry through a temp file in the same directory, then rename.
+  # Same-content copies keep their mtime as well.
   tmp_entry="$(mktemp "${PLUGIN_DIR}/.${PLUGIN_NAME}.entry.XXXXXX")"
   cp -- "${ENTRY_SOURCE}" "${tmp_entry}"
   chmod 0644 -- "${tmp_entry}"
-  mv -f -- "${tmp_entry}" "${ENTRY_FILE}"
+  if [[ -f "${ENTRY_FILE}" ]] && cmp -s -- "${tmp_entry}" "${ENTRY_FILE}"; then
+    rm -f -- "${tmp_entry}"
+    chmod 0644 -- "${ENTRY_FILE}"
+    info "unchanged ${ENTRY_FILE}"
+  else
+    mv -f -- "${tmp_entry}" "${ENTRY_FILE}"
+    info "installed ${ENTRY_FILE}"
+  fi
 
   local modules=("${LIB_DIR}"/*.js)
   verify_permissions || die "installed copy is not readable by the host account"
 
-  info "installed ${ENTRY_FILE}"
   info "installed ${LIB_DIR}/ (${#modules[@]} modules)"
 
   warn_duplicate_registration
@@ -189,14 +239,15 @@ verify_permissions() {
 # one OpenCode itself runs as. Exit status is the health signal.
 verify_installed() {
   local status=0 path
-  # Old layout: the module dir sits in plugin/, where opencode2 loads every
+  # Old layouts: a module dir inside plugin/, where opencode2 loads every
   # first-level directory as a plugin package. Report it even when the new
   # layout is missing, so an upgrade starts with the real reason.
-  if [[ -d "${LEGACY_LIB_DIR}" ]]; then
-    printf '[verify] legacy module dir inside the plugin scan path: %s\n' "${LEGACY_LIB_DIR}" >&2
+  for path in "${LEGACY_DIRS[@]}"; do
+    [[ -d "${path}" ]] || continue
+    printf '[verify] legacy module dir inside the plugin scan path: %s\n' "${path}" >&2
     printf '[verify] opencode2 loads each first-level dir under plugin/ as a plugin; rerun install.sh to move it out\n' >&2
     status=1
-  fi
+  done
   if [[ ! -d "${LIB_DIR}" || ! -f "${ENTRY_FILE}" ]]; then
     printf '[verify] not installed under %s\n' "${CONFIG_DIR}" >&2
     printf '[verify] run: bash install.sh\n' >&2
@@ -244,7 +295,7 @@ warn_duplicate_registration() {
 
 uninstall_plugin() {
   rm -rf -- "${LIB_DIR}"
-  rm -rf -- "${LEGACY_LIB_DIR}"
+  remove_legacy_dirs
   rm -f -- "${ENTRY_FILE}"
   info "removed ${ENTRY_FILE}"
   info "removed ${LIB_DIR}/"

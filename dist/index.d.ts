@@ -2,7 +2,7 @@ import type { RawOptions } from "./options.js";
 import { type V1Hooks } from "./v1.js";
 export interface HybridPlugin {
     readonly id: string;
-    setup(ctx: unknown): Promise<() => void>;
+    setup(ctx: unknown): Promise<(() => void) | V1Hooks>;
     server(input: unknown, options?: RawOptions): Promise<V1Hooks>;
 }
 declare const plugin: HybridPlugin;

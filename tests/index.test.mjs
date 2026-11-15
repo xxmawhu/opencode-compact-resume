@@ -53,7 +53,21 @@ function v2Context({ subscribe, session = {} } = {}) {
   return { ctx, calls };
 }
 
-test("setup() with the classic v1 input stays inert without a subscribe error", async () => {
+test("setup() with the classic v1 input returns the v1 hook map", async () => {
+  const capture = captureConsole();
+  let hooks;
+  try {
+    hooks = await plugin.setup(classicV1Input({ promptAsync: async () => ({}) }));
+  } finally {
+    capture.restore();
+  }
+
+  assert.equal(typeof hooks.event, "function");
+  assert.equal(typeof hooks["experimental.compaction.autocontinue"], "function");
+  assert.deepEqual(capture.lines, []);
+});
+
+test("setup() with a v1 input without a send transport stays inert without noise", async () => {
   const capture = captureConsole();
   let cleanup;
   try {
@@ -64,24 +78,7 @@ test("setup() with the classic v1 input stays inert without a subscribe error", 
 
   assert.equal(typeof cleanup, "function");
   cleanup();
-  const log = capture.lines.join("\n");
-  assert.match(log, /setup\(\) received .*v1.* input/);
-  assert.doesNotMatch(log, /compaction event subscription failed/);
-});
-
-test("setup() with the classic v1 input and a send transport stays inert without a subscribe error", async () => {
-  const capture = captureConsole();
-  let cleanup;
-  try {
-    cleanup = await plugin.setup(classicV1Input({ promptAsync: async () => ({}) }));
-  } finally {
-    capture.restore();
-  }
-
-  assert.equal(typeof cleanup, "function");
-  cleanup();
-  const log = capture.lines.join("\n");
-  assert.doesNotMatch(log, /compaction event subscription failed/);
+  assert.deepEqual(capture.lines, []);
 });
 
 test("setup() with a v2 context still subscribes to compaction events", async () => {

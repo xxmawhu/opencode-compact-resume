@@ -15,7 +15,7 @@
 import { PLUGIN_ID } from "./constants.js";
 import { PluginError } from "./errors.js";
 import { describeError } from "./injector.js";
-import { createConsoleLogger } from "./log.js";
+import { createAppLogger } from "./log.js";
 import { createV1Hooks, resolveV1Config } from "./v1.js";
 import { setupV2 } from "./v2.js";
 function assertV1Input(input) {
@@ -37,36 +37,40 @@ function isV1Input(ctx) {
     const candidate = ctx;
     return typeof candidate?.client?.session === "object" && candidate.client.session !== null;
 }
+function createServer(input, options) {
+    // Defer validation so a bad context surfaces as a rejected promise.
+    return Promise.resolve().then(() => createV1Hooks(assertV1Input(input), resolveV1Config(options)));
+}
+/**
+ * Contract R5: a v1-shaped `setup(ctx)` call must be handed to the v1 path.
+ * v1 hooks only take effect through the hook map `server()` returns, so the
+ * setup call returns that map instead of subscribing to a missing event
+ * stream, and hosts that only call `setup()` still get a working plugin.
+ *
+ * A v1-shaped input without a send transport is a designed degradation: stay
+ * inert and log at `info` (visible only with `verbose`), because a warning on
+ * every startup would violate contract R8.
+ */
+async function resolveV1Setup(ctx) {
+    try {
+        return await createServer(ctx);
+    }
+    catch (error) {
+        const logger = createAppLogger(ctx.client?.app, resolveV1Config(undefined).verbose);
+        logger("info", "v1 input without session.promptAsync/prompt; resume inactive", {
+            error: describeError(error),
+        });
+        return () => { };
+    }
+}
 const plugin = {
     id: PLUGIN_ID,
     setup(ctx) {
-        if (!isV1Input(ctx))
-            return setupV2(ctx);
-        // v1 callbacks only take effect through `server(input)`, which returns the
-        // hook map. `setup` returns a cleanup callback, so this path validates the
-        // classic context and then stays inert instead of subscribing to nothing.
-        return Promise.resolve().then(() => {
-            const logger = createConsoleLogger(false);
-            try {
-                assertV1Input(ctx);
-                // [log-review] warning because: (1) the host passed the classic v1
-                // input to the v2-only entrypoint, (2) the reminder cannot register
-                // through setup's cleanup callback, (3) scope: one line per load.
-                logger("warn", "setup() received the classic v1 input; v1 hooks register through server(), resume stays inert here");
-            }
-            catch (error) {
-                // [log-review] warning because: (1) the context is v1-shaped but has no
-                // send transport, (2) the plugin cannot inject anything, so this is a
-                // degraded load rather than a failure, (3) scope: one line per load.
-                logger("warn", "setup() received a v1-style input without session.promptAsync/prompt; resume stays inert", { error: describeError(error) });
-            }
-            return () => { };
-        });
+        if (isV1Input(ctx))
+            return resolveV1Setup(ctx);
+        return setupV2(ctx);
     },
-    server(input, options) {
-        // Defer validation so a bad context surfaces as a rejected promise.
-        return Promise.resolve().then(() => createV1Hooks(assertV1Input(input), resolveV1Config(options)));
-    },
+    server: createServer,
 };
 export default plugin;
 export { DEFAULT_TEXT, PLUGIN_ID } from "./constants.js";
