@@ -25,6 +25,10 @@ function sandbox() {
   const config = join(base, "opencode");
   return {
     config,
+    // install.sh defaults its log to the checkout's log/. Without this override
+    // the expected failures below land in the production install log and get
+    // counted as real defects by log inspection.
+    logs: join(base, "log"),
     entry: join(config, "plugin", `${pluginName}.ts`),
     lib: join(config, `${pluginName}-lib`),
     legacyLib: join(config, "plugin", pluginName),
@@ -35,20 +39,38 @@ function sandbox() {
   };
 }
 
-function install(config, args = []) {
+function install(box, args = []) {
   return execFileSync("bash", [join(root, "install.sh"), ...args], {
     encoding: "utf8",
-    env: { ...process.env, OPENCODE_CONFIG_DIR: config },
+    // A hung installer must fail the test instead of blocking the runner.
+    timeout: 60_000,
+    env: {
+      ...process.env,
+      OPENCODE_CONFIG_DIR: box.config,
+      OPENCODE_INSTALL_LOG_DIR: box.logs,
+    },
   });
 }
 
 // --verify is expected to fail closed, so the tests need the exit status and
 // both streams instead of execFileSync's throw-on-nonzero behaviour.
-function runInstaller(config, args = []) {
+function runInstaller(box, args = []) {
   return spawnSync("bash", [join(root, "install.sh"), ...args], {
     encoding: "utf8",
-    env: { ...process.env, OPENCODE_CONFIG_DIR: config },
+    // A hung installer must fail the test instead of blocking the runner.
+    timeout: 60_000,
+    env: {
+      ...process.env,
+      OPENCODE_CONFIG_DIR: box.config,
+      OPENCODE_INSTALL_LOG_DIR: box.logs,
+    },
   });
+}
+
+function todayStamp() {
+  const now = new Date();
+  const pad = (value) => String(value).padStart(2, "0");
+  return `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
 }
 
 function packageVersion() {
@@ -59,7 +81,7 @@ test("copies the entry and every dist module into the config dir", (t) => {
   const box = sandbox();
   t.after(() => box.cleanup());
 
-  install(box.config);
+  install(box);
 
   assert.ok(existsSync(box.entry), "entry file is installed");
   assert.ok(existsSync(join(box.lib, "index.js")), "index.js is installed");
@@ -97,7 +119,7 @@ test("installed artifacts are traversable and readable by other accounts", (t) =
   const box = sandbox();
   t.after(() => box.cleanup());
 
-  install(box.config);
+  install(box);
 
   assert.equal(statSync(box.lib).mode & 0o777, 0o755, "module dir must stay traversable");
 
@@ -114,7 +136,7 @@ test("install writes a readable marker with the shipped version", (t) => {
   const box = sandbox();
   t.after(() => box.cleanup());
 
-  install(box.config);
+  install(box);
 
   const markerPath = join(box.lib, ".install-info");
   assert.equal(statSync(markerPath).mode & 0o777, 0o644, "marker stays world-readable");
@@ -127,9 +149,9 @@ test("install writes a readable marker with the shipped version", (t) => {
 test("--verify accepts a fresh install and reports the marker", (t) => {
   const box = sandbox();
   t.after(() => box.cleanup());
-  install(box.config);
+  install(box);
 
-  const result = runInstaller(box.config, ["--verify"]);
+  const result = runInstaller(box, ["--verify"]);
 
   assert.equal(result.status, 0, result.stderr);
   assert.match(result.stdout, /current account:/);
@@ -141,10 +163,10 @@ test("--verify accepts a fresh install and reports the marker", (t) => {
 test("--verify fails closed when the module dir is not traversable", (t) => {
   const box = sandbox();
   t.after(() => box.cleanup());
-  install(box.config);
+  install(box);
   chmodSync(box.lib, 0o700);
 
-  const result = runInstaller(box.config, ["--verify"]);
+  const result = runInstaller(box, ["--verify"]);
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /not traversable by other users/);
@@ -155,7 +177,7 @@ test("--verify reports a missing install instead of guessing", (t) => {
   const box = sandbox();
   t.after(() => box.cleanup());
 
-  const result = runInstaller(box.config, ["--verify"]);
+  const result = runInstaller(box, ["--verify"]);
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /not installed under/);
@@ -165,14 +187,14 @@ test("--verify reports a missing install instead of guessing", (t) => {
 test("--verify is read-only", (t) => {
   const box = sandbox();
   t.after(() => box.cleanup());
-  install(box.config);
+  install(box);
 
   const before = {
     files: readdirSync(box.lib).sort(),
     libMtime: statSync(box.lib).mtimeMs,
     entryMtime: statSync(box.entry).mtimeMs,
   };
-  runInstaller(box.config, ["--verify"]);
+  runInstaller(box, ["--verify"]);
   const after = {
     files: readdirSync(box.lib).sort(),
     libMtime: statSync(box.lib).mtimeMs,
@@ -191,15 +213,15 @@ test("a plugin dir the installer cannot write fails with the real reason", (t) =
     box.cleanup();
   });
 
-  assert.throws(() => install(box.config), /cannot write .*plugin/);
+  assert.throws(() => install(box), /cannot write .*plugin/);
 });
 
 test("reinstalling replaces the previous copy and leaves no staging dirs", (t) => {
   const box = sandbox();
   t.after(() => box.cleanup());
 
-  install(box.config);
-  install(box.config);
+  install(box);
+  install(box);
 
   const pluginDir = join(box.config, "plugin");
   const leftovers = readdirSync(pluginDir).filter((name) => name.startsWith(`.${pluginName}`));
@@ -220,7 +242,7 @@ test("installing over the legacy layout removes the module dir from plugin/", (t
   const legacyMarker = join(box.legacyLib, "index.js");
   writeFileSync(legacyMarker, "export default {};\n");
 
-  const output = install(box.config);
+  const output = install(box);
 
   assert.match(output, /removed legacy module dir/);
   assert.equal(existsSync(box.legacyLib), false);
@@ -231,10 +253,10 @@ test("installing over the legacy layout removes the module dir from plugin/", (t
 test("--verify rejects the legacy layout still inside plugin/", (t) => {
   const box = sandbox();
   t.after(() => box.cleanup());
-  install(box.config);
+  install(box);
   mkdirSync(box.legacyLib, { recursive: true });
 
-  const result = runInstaller(box.config, ["--verify"]);
+  const result = runInstaller(box, ["--verify"]);
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /legacy module dir inside the plugin scan path/);
@@ -246,7 +268,7 @@ test("reinstalling unchanged content keeps mtimes and the marker", (t) => {
   const box = sandbox();
   t.after(() => box.cleanup());
 
-  install(box.config);
+  install(box);
   const markerPath = join(box.lib, ".install-info");
   const before = {
     lib: statSync(box.lib, { bigint: true }).mtimeNs,
@@ -255,7 +277,7 @@ test("reinstalling unchanged content keeps mtimes and the marker", (t) => {
     markerBody: readFileSync(markerPath, "utf8"),
   };
 
-  const output = install(box.config);
+  const output = install(box);
 
   assert.match(output, /unchanged .*opencode-compact-resume-lib/);
   assert.match(output, /unchanged .*opencode-compact-resume\.ts/);
@@ -274,7 +296,7 @@ test("installing removes a module dir left at plugin/<name>-lib/", (t) => {
   mkdirSync(box.legacyScannedLib, { recursive: true });
   writeFileSync(join(box.legacyScannedLib, "index.js"), "export default {};\n");
 
-  const output = install(box.config);
+  const output = install(box);
 
   assert.match(output, /removed legacy module dir/);
   assert.equal(existsSync(box.legacyScannedLib), false);
@@ -284,10 +306,10 @@ test("installing removes a module dir left at plugin/<name>-lib/", (t) => {
 test("--verify rejects a module dir still at plugin/<name>-lib/", (t) => {
   const box = sandbox();
   t.after(() => box.cleanup());
-  install(box.config);
+  install(box);
   mkdirSync(box.legacyScannedLib, { recursive: true });
 
-  const result = runInstaller(box.config, ["--verify"]);
+  const result = runInstaller(box, ["--verify"]);
 
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /legacy module dir inside the plugin scan path/);
@@ -297,8 +319,8 @@ test("uninstall removes the entry and the module directory", (t) => {
   const box = sandbox();
   t.after(() => box.cleanup());
 
-  install(box.config);
-  install(box.config, ["--uninstall"]);
+  install(box);
+  install(box, ["--uninstall"]);
 
   assert.equal(existsSync(box.entry), false);
   assert.equal(existsSync(box.lib), false);
@@ -309,7 +331,7 @@ test("uninstall also removes a legacy module dir inside plugin/", (t) => {
   t.after(() => box.cleanup());
 
   mkdirSync(box.legacyLib, { recursive: true });
-  install(box.config, ["--uninstall"]);
+  install(box, ["--uninstall"]);
 
   assert.equal(existsSync(box.legacyLib), false);
 });
@@ -318,15 +340,33 @@ test("unknown arguments fail without touching the install", (t) => {
   const box = sandbox();
   t.after(() => box.cleanup());
 
-  assert.throws(() => install(box.config, ["--nope"]), /unknown argument/);
+  assert.throws(() => install(box, ["--nope"]), /unknown argument/);
   assert.equal(existsSync(box.entry), false);
+});
+
+// Regression: these tests used to inherit install.sh's default log dir, so
+// expected failures wrote [ERROR] lines into the checkout's log/ and were
+// counted as production defects. The sandbox must absorb every line instead.
+test("installer runs write to the sandbox log, never the repo log", (t) => {
+  const box = sandbox();
+  t.after(() => box.cleanup());
+  const repoLog = join(root, "log", `install.${todayStamp()}.log`);
+  const repoSize = () => (existsSync(repoLog) ? statSync(repoLog).size : -1);
+  const before = repoSize();
+
+  install(box);
+
+  const logFiles = readdirSync(box.logs).filter((name) => name.startsWith("install."));
+  assert.equal(logFiles.length, 1, `exactly one sandbox install log, got ${logFiles.join(",")}`);
+  assert.match(readFileSync(join(box.logs, logFiles[0]), "utf8"), /\[stage:install\] installed/);
+  assert.equal(repoSize(), before, "the repo install log must not grow");
 });
 
 test("the installed copy exposes the v1 hook factory", async (t) => {
   const box = sandbox();
   t.after(() => box.cleanup());
 
-  install(box.config);
+  install(box);
   const hybrid = (await import(pathToFileURL(join(box.lib, "index.js")).href)).default;
 
   assert.equal(hybrid.id, pluginName);
