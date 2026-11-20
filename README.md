@@ -69,6 +69,14 @@ OPENCODE_CONFIG_DIR=/path/to/opencode bash install.sh
 
 安装产物固定为目录 `0755`、文件 `0644`。OpenCode 可能以另一个账号运行（运行账号 ≠ 执行 `install.sh` 的账号），目录不可穿越时 `import` 会在插件加载前失败，压缩后就不会有注入且没有插件日志。脚本在安装末尾校验这两项，不满足即报错退出。
 
+安装与卸载写的日志和失败提示：
+
+- 记录位置：仓库 `log/install.YYYYMMDD.log`，行格式 `[时间] [级别] [stage:install] 消息`。
+- `OPENCODE_INSTALL_LOG_DIR` 改日志目录；目录不可写时降级为只打印 stderr。
+- 失败时屏幕额外打印 `详见 <日志路径>`。
+- repo-keeper 部署副本由 `post-merge` 调 `scripts/post-merge-hook.sh`，完整输出落 `log/post-merge-hook.YYYYMMDD.log`。
+- `--verify` 只读，不写日志。
+
 安装后可用只读自检确认宿主可读：
 
 ```sh
@@ -97,12 +105,31 @@ bash install.sh --verify
 ```sh
 CFG=${OPENCODE_CONFIG_DIR:-$HOME/.config/opencode}
 find "$CFG/plugin" "$CFG/plugins" -mindepth 1 -maxdepth 2 -type d
-opencode --standalone --print-logs --log-level debug run hi --model nonexistent/nonexistent 2>&1 | grep -c 'failed to load plugin'   # 期望 0
-opencode debug info | grep -c opencode-compact-resume                        # 期望 ≥1
+```
+
+按代次分别验收，不要混跑：`opencode debug info` 只存在于 v1，v2 下执行返回非 0、计数恒为 0。
+
+**OpenCode v2**（`opencode --version` 输出 v2.x）。判据是启动日志里的加载行，必须在新建的空配置目录内执行，否则计数包含其他插件：
+
+```sh
+CFG=$(mktemp -d)
+OPENCODE_CONFIG_DIR="$CFG" bash install.sh
+LOG=$(mktemp)
+OPENCODE_CONFIG_DIR="$CFG" opencode --standalone --print-logs --log-level debug run hi --model nonexistent/nonexistent >"$LOG" 2>&1
+grep -c 'msg="loading plugin"' "$LOG"     # 期望 1
+grep -c 'failed to load plugin' "$LOG"    # 期望 0
+```
+
+`hi --model nonexistent/nonexistent` 只为拉起宿主并加载插件，命令以非 0 退出属正常；只看上述两项计数。
+
+**OpenCode v1**（`opencode --version` 输出 1.x）：
+
+```sh
+opencode debug info | grep -c opencode-compact-resume   # 期望 ≥1（只表示被发现）
 opencode run hi --model nonexistent/nonexistent --print-logs --log-level DEBUG 2>&1 | grep -c 'failed to load plugin'   # 期望 0
 ```
 
-两个宿主各重复 ≥3 轮，计数一致即通过。
+同一代次内重复 ≥3 轮，计数一致即通过。
 
 ### 自动部署（repo-keeper 拉取侧）
 
@@ -220,7 +247,7 @@ OpenCode v1 在压缩后追加一个通用的合成“继续”回合。若该�
 
 ## 排障
 
-- **压缩后没有提醒**：先确认未设置 `OPENCODE_COMPACT_RESUME_DISABLED`、会话不是子会话、插件入口出现在 `opencode debug info` 的 `plugins:` 列表。
+- **压缩后没有提醒**：先确认未设置 `OPENCODE_COMPACT_RESUME_DISABLED`、会话不是子会话、插件入口已加载（v1 查 `opencode debug info` 的 `plugins:` 列表，v2 无该子命令，查启动日志的 `msg="loading plugin"`）。
   再运行 `bash install.sh --verify`，非 0 退出时按输出修复；常见原因是模块目录对宿主账号不可穿越，或旧布局的 `plugin/opencode-compact-resume/` 仍在。
   缺少 `.install-info` 说明副本早于 0.1.5，重跑 `install.sh` 刷新。
   该故障没有插件日志，因为 `import` 在钩子注册前就失败。

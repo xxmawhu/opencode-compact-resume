@@ -42,14 +42,70 @@ LEGACY_DIRS=("${LEGACY_LIB_DIR}" "${LEGACY_SCANNED_LIB_DIR}")
 ENTRY_FILE="${PLUGIN_DIR}/${PLUGIN_NAME}.ts"
 ENTRY_SOURCE="${SCRIPT_DIR}/install/${PLUGIN_NAME}.ts"
 DIST_DIR="${SCRIPT_DIR}/dist"
+# The post-merge hook runs this script unattended (repo-keeper pulls the deploy
+# copy), so a failure reason must survive outside the console. The log lives in
+# the checkout's log/ dir; OPENCODE_INSTALL_LOG_DIR overrides it for tests.
+LOG_DIR="${OPENCODE_INSTALL_LOG_DIR:-${SCRIPT_DIR}/log}"
+LOG_FILE="${LOG_DIR}/install.$(date +%Y%m%d).log"
 readonly PLUGIN_NAME SCRIPT_DIR CONFIG_DIR PLUGIN_DIR LIB_DIR LEGACY_LIB_DIR \
-  LEGACY_SCANNED_LIB_DIR LEGACY_DIRS ENTRY_FILE ENTRY_SOURCE DIST_DIR
+  LEGACY_SCANNED_LIB_DIR LEGACY_DIRS ENTRY_FILE ENTRY_SOURCE DIST_DIR LOG_DIR
 
-info() { printf '[install] %s\n' "$*"; }
+# One line per event: `[YYYY-MM-DD HH:MM:SS] [LEVEL] [stage:install] message`.
+# The console keeps its terse `[install] ...` form; the file is the record that
+# outlives the process.
+log_write() {
+  local level=$1
+  shift
+  [[ -n "${LOG_FILE:-}" ]] || return 0
+  printf '[%s] [%s] [stage:%s] %s\n' \
+    "$(date '+%Y-%m-%d %H:%M:%S')" "${level}" "install" "$*" \
+    >>"${LOG_FILE}" 2>/dev/null || true
+}
+
+# Best effort on purpose: a read-only checkout must still install, so an
+# unwritable log dir degrades to stderr only instead of aborting.
+init_log() {
+  local args=""
+  (( $# == 0 )) || args=" $*"
+  if mkdir -p -- "${LOG_DIR}" 2>/dev/null && : >>"${LOG_FILE}" 2>/dev/null; then
+    log_write INFO "run: install.sh${args} (as $(id -un))"
+    return 0
+  fi
+  LOG_FILE=""
+  printf '[install] warning: cannot write %s; failure reason stays on stderr\n' \
+    "${LOG_DIR}" >&2
+}
+
+info() {
+  printf '[install] %s\n' "$*"
+  log_write INFO "$*"
+}
 
 die() {
   printf '[install] error: %s\n' "$*" >&2
+  log_write ERROR "$*"
+  if [[ -n "${LOG_FILE:-}" ]]; then
+    printf '[install] 详见 %s\n' "${LOG_FILE}" >&2
+  fi
   exit 1
+}
+
+# Filesystem steps run under `set -e`; capture their stderr so the reason lands
+# in the log before the script aborts. Without this the only record of a failed
+# mktemp/cp/mv is the hook console, which the post-merge path discards.
+run_step() {
+  local what=$1 status=0 err
+  shift
+  err=$("$@" 2>&1 1>/dev/null) || status=$?
+  # Log lines are one event per line; a multi-line stderr would break the
+  # `[time] [LEVEL] [stage:...]` record that the hook log is parsed by eye.
+  err="${err//$'\n'/ | }"
+  if ((status != 0)); then
+    die "${what} failed (rc=${status}): ${err:-no stderr}"
+  fi
+  # INFO on purpose: the step succeeded, so stderr here is noise worth keeping,
+  # not a degraded outcome.
+  [[ -z "${err}" ]] || log_write INFO "${what} wrote to stderr: ${err}"
 }
 
 usage() {
@@ -66,9 +122,13 @@ Usage:
 Environment:
   OPENCODE_CONFIG_DIR             target config dir
                                   (default: ${XDG_CONFIG_HOME:-$HOME/.config}/opencode)
+  OPENCODE_INSTALL_LOG_DIR        directory for install.YYYYMMDD.log
+                                  (default: <repo>/log; unwritable falls back to stderr)
 
 The installer only copies files; it never builds, installs packages or edits
 opencode.json. Restart OpenCode after installing so the plugin is loaded.
+Every run writes a timestamped log line; on failure the console also prints the
+log path so an unattended post-merge run can be diagnosed afterwards.
 EOF
 }
 
@@ -106,7 +166,7 @@ remove_legacy_dirs() {
   local dir
   for dir in "${LEGACY_DIRS[@]}"; do
     [[ -d "${dir}" ]] || continue
-    rm -rf -- "${dir}"
+    run_step "remove legacy dir ${dir}" rm -rf -- "${dir}"
     info "removed legacy module dir ${dir}"
   done
 }
@@ -116,8 +176,9 @@ install_plugin() {
     die "dist/index.js is missing. Build it first: npm ci && npm run build"
   [[ -f "${ENTRY_SOURCE}" ]] || die "missing entry template: ${ENTRY_SOURCE}"
 
-  mkdir -p -- "${PLUGIN_DIR}" 2>/dev/null ||
-    die "cannot create ${PLUGIN_DIR} (read-only or no permission)"
+  local mkdir_err
+  mkdir_err=$(mkdir -p -- "${PLUGIN_DIR}" 2>&1) ||
+    die "cannot create ${PLUGIN_DIR}: ${mkdir_err:-no stderr}"
   # Fail with the real reason instead of letting mktemp abort under set -e: the
   # config dir is often owned by the desktop user while OpenCode runs as another
   # account that can only read the config tree.
@@ -131,7 +192,9 @@ install_plugin() {
   local staging tmp_entry
   # Stage beside the final module dir so the rename stays on one filesystem,
   # and outside plugin/ so a concurrent host scan never sees a partial package.
-  staging="$(mktemp -d "${CONFIG_DIR}/.${PLUGIN_NAME}-lib.stage.XXXXXX")"
+  if ! staging=$(mktemp -d -- "${CONFIG_DIR}/.${PLUGIN_NAME}-lib.stage.XXXXXX" 2>&1); then
+    die "cannot create staging dir under ${CONFIG_DIR}: ${staging}"
+  fi
   # shellcheck disable=SC2064 # expand the staging path now, not at exit time
   trap "rm -rf -- '${staging}'" EXIT
 
@@ -141,7 +204,7 @@ install_plugin() {
   # plugin never loads (no hook, no injection, no log).
   chmod 0755 -- "${staging}"
 
-  cp -- "${DIST_DIR}"/*.js "${staging}/"
+  run_step "copy dist modules" cp -- "${DIST_DIR}"/*.js "${staging}/"
   cat >"${staging}/package.json" <<EOF
 {
   "name": "${PLUGIN_NAME}",
@@ -165,8 +228,8 @@ EOF
     chmod 0644 -- "${LIB_DIR}"/*.js "${LIB_DIR}/package.json"
     info "unchanged ${LIB_DIR}/ (kept mtime)"
   else
-    rm -rf -- "${LIB_DIR}"
-    mv -- "${staging}" "${LIB_DIR}"
+    run_step "replace ${LIB_DIR}" rm -rf -- "${LIB_DIR}"
+    run_step "rename staging dir into ${LIB_DIR}" mv -- "${staging}" "${LIB_DIR}"
     chmod 0755 -- "${LIB_DIR}"
     trap - EXIT
   fi
@@ -177,15 +240,17 @@ EOF
 
   # Write the entry through a temp file in the same directory, then rename.
   # Same-content copies keep their mtime as well.
-  tmp_entry="$(mktemp "${PLUGIN_DIR}/.${PLUGIN_NAME}.entry.XXXXXX")"
-  cp -- "${ENTRY_SOURCE}" "${tmp_entry}"
+  if ! tmp_entry=$(mktemp -- "${PLUGIN_DIR}/.${PLUGIN_NAME}.entry.XXXXXX" 2>&1); then
+    die "cannot create entry temp file in ${PLUGIN_DIR}: ${tmp_entry}"
+  fi
+  run_step "copy entry" cp -- "${ENTRY_SOURCE}" "${tmp_entry}"
   chmod 0644 -- "${tmp_entry}"
   if [[ -f "${ENTRY_FILE}" ]] && cmp -s -- "${tmp_entry}" "${ENTRY_FILE}"; then
     rm -f -- "${tmp_entry}"
     chmod 0644 -- "${ENTRY_FILE}"
     info "unchanged ${ENTRY_FILE}"
   else
-    mv -f -- "${tmp_entry}" "${ENTRY_FILE}"
+    run_step "rename entry into ${ENTRY_FILE}" mv -f -- "${tmp_entry}" "${ENTRY_FILE}"
     info "installed ${ENTRY_FILE}"
   fi
 
@@ -206,7 +271,10 @@ check_path() {
     printf '[%s] missing installed path: %s\n' "${tag}" "${path}" >&2
     return 1
   fi
-  read -r mode owner < <(stat -c '%a %U:%G' -- "${path}")
+  if ! read -r mode owner < <(stat -c '%a %U:%G' -- "${path}"); then
+    printf '[%s] cannot stat installed path: %s\n' "${tag}" "${path}" >&2
+    return 1
+  fi
   if [[ "${CHECK_VERBOSE:-0}" == 1 ]]; then
     printf '[%s] %s %s %s\n' "${tag}" "${mode}" "${owner}" "${path}"
   fi
@@ -294,9 +362,9 @@ warn_duplicate_registration() {
 }
 
 uninstall_plugin() {
-  rm -rf -- "${LIB_DIR}"
+  run_step "remove ${LIB_DIR}" rm -rf -- "${LIB_DIR}"
   remove_legacy_dirs
-  rm -f -- "${ENTRY_FILE}"
+  run_step "remove ${ENTRY_FILE}" rm -f -- "${ENTRY_FILE}"
   info "removed ${ENTRY_FILE}"
   info "removed ${LIB_DIR}/"
   info "restart OpenCode to unload the plugin"
@@ -308,15 +376,19 @@ main() {
       usage
       ;;
     --verify)
+      # Read-only by contract: --verify never creates the log dir either.
       verify_installed
       ;;
     --uninstall)
+      init_log "$@"
       uninstall_plugin
       ;;
     "")
+      init_log "$@"
       install_plugin
       ;;
     *)
+      init_log "$@"
       die "unknown argument: $1 (try --help)"
       ;;
   esac
